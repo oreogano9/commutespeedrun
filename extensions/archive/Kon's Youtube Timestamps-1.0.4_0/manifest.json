@@ -1,0 +1,40 @@
+{
+   "action": {
+      "default_popup": "popup/popup.html"
+   },
+   "background": {
+      "service_worker": "background/background.js",
+      "type": "module"
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "css": [ "content/content.css" ],
+      "js": [ "content/content.js" ],
+      "matches": [ "https://*.youtube.com/*" ],
+      "run_at": "document_start"
+   } ],
+   "declarative_net_request": {
+      "rule_resources": [ {
+         "enabled": true,
+         "id": "ruleset_1",
+         "path": "rules.json"
+      } ]
+   },
+   "description": "Sync YouTube comments with video playback and highly customizable timestamp overlays.",
+   "host_permissions": [ "https://*.youtube.com/" ],
+   "icons": {
+      "128": "icons/128x128.png",
+      "16": "icons/16x16.png",
+      "48": "icons/48x48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0sKVu0fclKRVI3lyNtNAj1uTq27RFtL3fZbu86XHX/PQ23CKGJwYBgj+gRwV+anmmpI10iF/N6MbW0LH+LeunlQJfPSVP5Oeq5ChCJHCZmTA75JI44x/pY0PZapXBcKxIGstuzGi119/mmSV43Zk++QNnU23FIORpRWj0em2wIwjgBSuQKz+RNQYmJQJiBGeqcoe/b0lwddaxrv6VmpKpCI8Y8SVPjaHYWV1kigGSBzr1i42EgQhX2M7eJOk4czv6IhG0dTfX0lW8oRa4wTi7lDA4dMrlYKx1GaZQFtkK2/718TmkXzDzUp1q55SM8QVTynimq8uUohjPfLsSGVOYwIDAQAB",
+   "manifest_version": 3,
+   "name": "Timestamp Chatter",
+   "permissions": [ "storage", "declarativeNetRequestWithHostAccess", "tabs" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.0.4",
+   "web_accessible_resources": [ {
+      "matches": [ "https://*.youtube.com/*" ],
+      "resources": [ "images/eye-open.png", "images/eye-closed.png", "images/eye-open.svg", "images/eye-closed.svg" ]
+   } ]
+}

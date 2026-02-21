@@ -1,0 +1,943 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Timestamp Chatter</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap");
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html {
+        width: 380px;
+        height: 840px;
+      }
+
+      body {
+        font-family: Inter, sans-serif;
+        user-select: none;
+        width: 380px;
+        height: 840px;
+        overflow-y: auto;
+        background: linear-gradient(180deg, #f8fbff 0%, #f5f7fb 100%);
+        color: #0f172a;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 18px 0;
+      }
+
+      header .logo-box {
+        align-items: center;
+        display: flex;
+        gap: 12px;
+      }
+
+      header .logo-box h4 {
+        font-size: 13px;
+        letter-spacing: 0.01em;
+      }
+
+      header img {
+        width: 26px;
+      }
+
+      hr {
+        border: none;
+        height: 1px;
+        background: rgb(203 213 225);
+        margin: 12px 16px;
+      }
+
+      #togglebtn {
+        cursor: pointer;
+        position: relative;
+        width: 44px;
+        height: 24px;
+      }
+
+      #togglebtn .bar {
+        border: 1px solid #99a4b5;
+        display: block;
+        height: 100%;
+        width: 100%;
+        border-radius: 999px;
+        background: #e2e8f0;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+
+      #togglebtn .knob {
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        background: #fff;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+        transition: transform 0.2s ease;
+      }
+
+      .toggle_active .bar {
+        border: 1px solid #8eb2ff !important;
+        background: #0b57d0 !important;
+      }
+
+      .toggle_active .knob {
+        transform: translateX(20px);
+      }
+
+      .screen-container {
+        padding: 0 16px 16px;
+      }
+
+      .screen-container h5,
+      footer h5,
+      .settings h5 {
+        font-size: 10px;
+        margin-bottom: 12px;
+      }
+
+      .screen-container .screen {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px solid #d0d8e6;
+        border-radius: 10px;
+        background: #fff;
+        box-shadow: 0 8px 24px rgb(15 23 42 / 0.08);
+      }
+
+      .screen-container .screen .screen-positions {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 118px;
+        padding: 10px;
+        position: relative;
+        background: linear-gradient(180deg, #eef3fa 0%, #f8fafc 100%);
+        border-radius: 8px;
+        margin: 6px;
+      }
+
+      .position-grid {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+
+      .position-button {
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        border-radius: 10px;
+        border: 1px solid #b7c5dc;
+        background: linear-gradient(180deg, #fff 0%, #f3f7ff 100%);
+        color: #334155;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease,
+          background 0.15s ease, color 0.15s ease;
+      }
+
+      .position-button:hover {
+        border-color: #8aa8d8;
+        transform: translateY(-1px);
+      }
+
+      .position-button .position-label {
+        display: block;
+        line-height: 1.1;
+      }
+
+      .position-button.selected {
+        border-color: #0b57d0;
+        color: #fff;
+        background: linear-gradient(180deg, #0b57d0 0%, #0947aa 100%);
+        box-shadow: 0 8px 16px rgb(11 87 208 / 0.28);
+      }
+
+      .settings {
+        margin-top: 14px;
+        border: 1px solid #d5deec;
+        border-radius: 12px;
+        padding: 12px;
+        background: #ffffffcc;
+        backdrop-filter: blur(6px);
+        box-shadow: 0 8px 20px rgb(15 23 42 / 0.06);
+      }
+
+      .settings-tabs {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+
+      .settings-tab {
+        border: 1px solid #bcd0ea;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #ffffff 0%, #edf4ff 100%);
+        color: #334155;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        min-height: 34px;
+        padding: 6px;
+        cursor: pointer;
+        transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease,
+          transform 0.14s ease;
+      }
+
+      .settings-tab:hover {
+        transform: translateY(-1px);
+        border-color: #8fb1df;
+      }
+
+      .settings-tab.active {
+        border-color: #0b57d0;
+        background: linear-gradient(180deg, #1d4ed8 0%, #0b57d0 100%);
+        color: #fff;
+      }
+
+      .settings-page {
+        display: none;
+      }
+
+      .settings-page.active {
+        display: block;
+      }
+
+      .settings-section {
+        border: 1px solid #d5deec;
+        border-radius: 10px;
+        background: #f8fbff;
+        padding: 8px 10px;
+        margin-top: 10px;
+      }
+
+      .settings-section:first-of-type {
+        margin-top: 0;
+      }
+
+      .settings-section .section-title {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #334155;
+        margin-bottom: 8px;
+      }
+
+      .setting-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: start;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .setting-row:last-of-type {
+        margin-bottom: 0;
+      }
+
+      .setting-row-full {
+        grid-template-columns: 1fr;
+      }
+
+      .setting-row-full label {
+        margin-bottom: 4px;
+      }
+
+      .setting-row label {
+        display: block;
+        min-width: 0;
+        line-height: 1.35;
+        font-size: 11px;
+        color: #1e293b;
+        font-weight: 500;
+      }
+
+      .setting-row output {
+        font-size: 11px;
+        color: #0b57d0;
+        font-weight: 600;
+        min-width: 46px;
+        text-align: right;
+      }
+
+      .setting-slider {
+        grid-column: 1 / -1;
+        width: 100%;
+        accent-color: #0b57d0;
+      }
+
+      .setting-hint {
+        grid-column: 1 / -1;
+        margin-top: 2px;
+        font-size: 10px;
+        color: #475569;
+      }
+
+      .rarity-preview-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 6px;
+        margin-top: 4px;
+      }
+
+      .rarity-preview-pill {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 24px;
+        padding: 4px 6px;
+        border: 1px solid #d3dcea;
+        border-radius: 8px;
+        background: #fff;
+        font-size: 10px;
+        font-weight: 600;
+        color: #334155;
+      }
+
+      .rarity-preview-swatch {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        box-shadow: 0 0 0 1px rgb(0 0 0 / 0.24);
+        flex: 0 0 auto;
+      }
+
+      .setting-number {
+        width: 74px;
+        justify-self: end;
+        padding: 5px 6px;
+        border: 1px solid #c8d4ea;
+        border-radius: 8px;
+        font-size: 11px;
+        background: #f8fbff;
+      }
+
+      .setting-select {
+        width: min(150px, 100%);
+        max-width: 150px;
+        justify-self: end;
+        padding: 5px 6px;
+        border: 1px solid #c8d4ea;
+        border-radius: 8px;
+        font-size: 11px;
+        background: #f8fbff;
+      }
+
+      .action-button {
+        width: 100%;
+        min-height: 34px;
+        border: 1px solid #9db8e4;
+        border-radius: 8px;
+        background: linear-gradient(180deg, #eef5ff 0%, #dbe9ff 100%);
+        color: #1e3a8a;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+      }
+
+      .action-button:hover {
+        border-color: #7fa2d9;
+      }
+
+      .setting-toggle-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        margin: 0 0 8px 0;
+      }
+
+      .setting-toggle-row label:first-child {
+        flex: 1 1 auto;
+        min-width: 0;
+        line-height: 1.35;
+        font-size: 11px;
+        color: #333;
+        font-weight: 500;
+      }
+
+      .setting-toggle-row .mini-switch {
+        flex: 0 0 auto;
+        margin-top: 1px;
+      }
+
+      .mini-switch {
+        position: relative;
+        display: inline-block;
+        width: 38px;
+        height: 22px;
+      }
+
+      .mini-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .mini-switch-slider {
+        position: absolute;
+        inset: 0;
+        cursor: pointer;
+        background-color: #ddd;
+        transition: 0.2s ease;
+        border-radius: 999px;
+      }
+
+      .mini-switch-slider:before {
+        content: "";
+        position: absolute;
+        height: 16px;
+        width: 16px;
+        left: 3px;
+        top: 3px;
+        background-color: #fff;
+        transition: 0.2s ease;
+        border-radius: 50%;
+      }
+
+      .mini-switch input:checked + .mini-switch-slider {
+        background-color: #0b57d0;
+      }
+
+      .mini-switch input:checked + .mini-switch-slider:before {
+        transform: translateX(16px);
+      }
+
+      .advanced-settings {
+        margin-top: 10px;
+        border: 1px solid #d5deec;
+        border-radius: 10px;
+        background: #f8fbff;
+        padding: 8px 10px;
+      }
+
+      .advanced-settings summary {
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+        color: #334155;
+        list-style: none;
+      }
+
+      .advanced-settings summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .advanced-settings summary::before {
+        content: "▸";
+        display: inline-block;
+        margin-right: 6px;
+        transition: transform 0.15s ease;
+      }
+
+      .advanced-settings[open] summary::before {
+        transform: rotate(90deg);
+      }
+
+      .advanced-content {
+        margin-top: 8px;
+      }
+
+      .advanced-content .settings-section {
+        margin-top: 8px;
+      }
+
+      .advanced-content .settings-section:first-child {
+        margin-top: 0;
+      }
+
+      .popup-theme-row {
+        margin-top: 10px;
+      }
+
+      body.dark-mode {
+        background: linear-gradient(180deg, #101726 0%, #0f172a 100%);
+        color: #e5e7eb;
+      }
+
+      body.dark-mode hr {
+        background: rgb(51 65 85);
+      }
+
+      body.dark-mode .settings {
+        border-color: #334155;
+        background: rgb(15 23 42 / 0.92);
+        box-shadow: 0 10px 20px rgb(0 0 0 / 0.35);
+      }
+
+      body.dark-mode .settings-tab {
+        border-color: #334155;
+        background: linear-gradient(180deg, #172133 0%, #0f172a 100%);
+        color: #dbe7f7;
+      }
+
+      body.dark-mode .settings-tab.active {
+        border-color: #7ea6ff;
+        background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+        color: #fff;
+      }
+
+      body.dark-mode .position-button {
+        border-color: #334155;
+        background: linear-gradient(180deg, #172133 0%, #0f172a 100%);
+        color: #dbe5f2;
+      }
+
+      body.dark-mode .screen-container .screen {
+        border-color: #334155;
+        background: #0f172a;
+        box-shadow: 0 8px 24px rgb(0 0 0 / 0.32);
+      }
+
+      body.dark-mode .screen-container .screen .screen-positions {
+        background: linear-gradient(180deg, #182236 0%, #111b2c 100%);
+      }
+
+      body.dark-mode .position-button:hover {
+        border-color: #5b78a9;
+      }
+
+      body.dark-mode .position-button.selected {
+        border-color: #7ea6ff;
+        color: #fff;
+        background: linear-gradient(180deg, #1d4ed8 0%, #1e40af 100%);
+      }
+
+      body.dark-mode .setting-row label,
+      body.dark-mode .setting-toggle-row label:first-child,
+      body.dark-mode .advanced-settings summary {
+        color: #e2e8f0;
+      }
+
+      body.dark-mode .setting-hint {
+        color: #cbd5e1;
+      }
+
+      body.dark-mode .setting-number,
+      body.dark-mode .setting-select {
+        border-color: #475569;
+        background: #0b1220;
+        color: #e5e7eb;
+      }
+
+      body.dark-mode .action-button {
+        border-color: #3f5f93;
+        background: linear-gradient(180deg, #1c3159 0%, #162a4e 100%);
+        color: #dbeafe;
+      }
+
+      body.dark-mode .rarity-preview-pill {
+        border-color: #3a4b66;
+        background: #0f172a;
+        color: #dbe7f7;
+      }
+
+      body.dark-mode .advanced-settings {
+        border-color: #334155;
+        background: #0b1220;
+      }
+
+      body.dark-mode .settings-section {
+        border-color: #334155;
+        background: #0b1220;
+      }
+
+      body.dark-mode .settings-section .section-title {
+        color: #cbd5e1;
+      }
+
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo-box">
+        <img src="../images/favicon.png" alt="Timestamp Chatter" />
+        <h4>Timestamp Chatter</h4>
+      </div>
+      <div id="togglebtn">
+        <span class="bar"></span>
+        <span class="knob"></span>
+      </div>
+    </header>
+
+    <hr noshade />
+
+    <main>
+      <div class="screen-container">
+        <div class="settings">
+          <h5>Overlay settings:</h5>
+          <div class="settings-tabs" role="tablist" aria-label="Settings pages">
+            <button class="settings-tab active" type="button" role="tab" aria-selected="true" data-tab="overlay">
+              Overlay
+            </button>
+            <button class="settings-tab" type="button" role="tab" aria-selected="false" data-tab="rarity">
+              Rarity skin
+            </button>
+            <button class="settings-tab" type="button" role="tab" aria-selected="false" data-tab="advanced">
+              Advanced
+            </button>
+          </div>
+
+          <section class="settings-page active" data-page="overlay">
+            <div class="settings-section">
+              <div class="section-title">Select position</div>
+              <div class="screen">
+                <div class="screen-positions">
+                  <div class="position-grid" role="group" aria-label="Overlay corner position">
+                    <button class="position-button" data-position="top-left">
+                      <span class="position-label">Top Left</span>
+                    </button>
+                    <button class="position-button" data-position="top-right">
+                      <span class="position-label">Top Right</span>
+                    </button>
+                    <button class="position-button" data-position="bottom-left">
+                      <span class="position-label">Bottom Left</span>
+                    </button>
+                    <button class="position-button" data-position="bottom-right">
+                      <span class="position-label">Bottom Right</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Display</div>
+              <div class="setting-toggle-row">
+                <label for="minimal-mode-toggle">Minimal mode</label>
+                <label class="mini-switch" for="minimal-mode-toggle">
+                  <input id="minimal-mode-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row popup-theme-row">
+                <label for="popup-dark-toggle">Dark mode</label>
+                <label class="mini-switch" for="popup-dark-toggle">
+                  <input id="popup-dark-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="size-slider">Overlay size</label>
+                <output id="size-value" for="size-slider">105%</output>
+                <input class="setting-slider" id="size-slider" type="range" min="50" max="350" step="5" value="105" />
+              </div>
+              <div class="setting-row">
+                <label for="duration-slider">On-screen time</label>
+                <output id="duration-value" for="duration-slider">14.0s</output>
+                <input class="setting-slider" id="duration-slider" type="range" min="1" max="60" step="0.5" value="14" />
+              </div>
+              <div class="setting-row">
+                <label for="radius-slider">Corner roundness</label>
+                <output id="radius-value" for="radius-slider">14px</output>
+                <input class="setting-slider" id="radius-slider" type="range" min="0" max="120" step="1" value="14" />
+              </div>
+              <div class="setting-row">
+                <label for="avatar-size-slider">Avatar size</label>
+                <output id="avatar-size-value" for="avatar-size-slider">25px</output>
+                <input class="setting-slider" id="avatar-size-slider" type="range" min="20" max="84" step="1" value="25" />
+              </div>
+              <div class="setting-toggle-row">
+                <label for="reverse-stack-toggle">Reverse stack order</label>
+                <label class="mini-switch" for="reverse-stack-toggle">
+                  <input id="reverse-stack-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Appearance</div>
+              <div class="setting-row">
+                <label for="glass-slider">Opacity</label>
+                <output id="glass-value" for="glass-slider">20%</output>
+                <input class="setting-slider" id="glass-slider" type="range" min="0" max="100" step="1" value="20" />
+              </div>
+              <div class="setting-row">
+                <label for="darkness-slider">Overlay darkness</label>
+                <output id="darkness-value" for="darkness-slider">90%</output>
+                <input class="setting-slider" id="darkness-slider" type="range" min="0" max="100" step="1" value="90" />
+              </div>
+              <div class="setting-toggle-row">
+                <label for="show-likes-toggle">Show likes in notifications</label>
+                <label class="mini-switch" for="show-likes-toggle">
+                  <input id="show-likes-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="rarity">
+            <div class="settings-section">
+              <div class="section-title">Rarity & timeline</div>
+              <div class="setting-toggle-row">
+                <label for="popularity-mode-toggle">Temporary popularity mode</label>
+                <label class="mini-switch" for="popularity-mode-toggle">
+                  <input id="popularity-mode-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="rarity-skin-select">Rarity skin</label>
+                <select class="setting-select" id="rarity-skin-select">
+                  <option value="default">Default</option>
+                  <option value="borderlands">Borderlands</option>
+                  <option value="borderlands2">Borderlands 2</option>
+                  <option value="minecraft">Minecraft</option>
+                  <option value="animalcrossing">Animal Crossing</option>
+                </select>
+                <small class="setting-hint">Selects the rarity ladder and visual skin used for popular comments.</small>
+              </div>
+              <div class="setting-row">
+                <label for="rarity-logic-select">Rarity logic (debug)</label>
+                <select class="setting-select" id="rarity-logic-select">
+                  <option value="thresholds">Current default</option>
+                  <option value="percentile">Percentile only</option>
+                </select>
+                <small class="setting-hint">Chooses how comments are assigned to rarity tiers.</small>
+              </div>
+              <div class="setting-row setting-row-full">
+                <label for="rarity-preview-grid">Rarity preview</label>
+                <div id="rarity-preview-grid" class="rarity-preview-grid" aria-live="polite"></div>
+              </div>
+              <div class="setting-row setting-row-full">
+                <label for="rarity-tier-visibility-list">Tier visibility</label>
+                <div id="rarity-tier-visibility-list" aria-live="polite"></div>
+              </div>
+              <div class="setting-row">
+                <label for="top-liked-threshold-slider">Top-liked threshold</label>
+                <output id="top-liked-threshold-value" for="top-liked-threshold-slider">12%</output>
+                <input class="setting-slider" id="top-liked-threshold-slider" type="range" min="1" max="50" step="1" value="12" />
+                <small id="top-liked-cutoff-inline" class="setting-hint">Gold cutoff: calculating...</small>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="priority-scoring-toggle">Priority scoring</label>
+                <label class="mini-switch" for="priority-scoring-toggle">
+                  <input id="priority-scoring-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="show-rarity-label-toggle">Show rarity label in notifications</label>
+                <label class="mini-switch" for="show-rarity-label-toggle">
+                  <input id="show-rarity-label-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="priority-likes-weight-input">Likes weight</label>
+                <input class="setting-number" id="priority-likes-weight-input" type="number" min="0" max="5" step="0.1" value="1" />
+              </div>
+              <div class="setting-toggle-row">
+                <label for="heatmap-enabled-toggle">Mini heatmap</label>
+                <label class="mini-switch" for="heatmap-enabled-toggle">
+                  <input id="heatmap-enabled-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="heatmap-intensity-slider">Heatmap intensity</label>
+                <output id="heatmap-intensity-value" for="heatmap-intensity-slider">500%</output>
+                <input class="setting-slider" id="heatmap-intensity-slider" type="range" min="10" max="2000" step="1" value="500" />
+              </div>
+            </div>
+          </section>
+
+          <section class="settings-page" data-page="advanced">
+            <div class="settings-section">
+              <div class="section-title">Scan</div>
+              <div class="setting-row setting-row-full">
+                <button class="action-button" id="rescan-now-button" type="button">
+                  Rescan now
+                </button>
+                <small id="rescan-now-status" class="setting-hint"></small>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Playback timing</div>
+              <div class="setting-toggle-row">
+                <label for="early-mode-toggle">Early notification mode</label>
+                <label class="mini-switch" for="early-mode-toggle">
+                  <input id="early-mode-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="follow-playback-speed-toggle">Follow playback speed</label>
+                <label class="mini-switch" for="follow-playback-speed-toggle">
+                  <input id="follow-playback-speed-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="early-seconds-input">Show before (sec)</label>
+                <input class="setting-number" id="early-seconds-input" type="number" min="0" max="60" step="0.5" value="5" />
+              </div>
+              <div class="setting-row">
+                <label for="accent-effect-select">At timestamp effect</label>
+                <select class="setting-select" id="accent-effect-select">
+                  <option value="glisten">Glisten</option>
+                  <option value="wiggle">Wiggle</option>
+                  <option value="shake">Shake</option>
+                  <option value="pulse">Pulse</option>
+                  <option value="heartbeat">Heartbeat</option>
+                  <option value="bounce">Bounce</option>
+                  <option value="tilt">Tilt</option>
+                  <option value="flash">Flash</option>
+                  <option value="glow">Glow</option>
+                  <option value="jello">Jello</option>
+                  <option value="rubberband">Rubberband</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="show-upcoming-dot-toggle">Show warning dot</label>
+                <label class="mini-switch" for="show-upcoming-dot-toggle">
+                  <input id="show-upcoming-dot-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="experimental-game-skin-toggle">Auto game skin (experimental)</label>
+                <label class="mini-switch" for="experimental-game-skin-toggle">
+                  <input id="experimental-game-skin-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Multi-corner routing</div>
+              <div class="setting-toggle-row">
+                <label for="routing-enabled-toggle">Enable routing</label>
+                <label class="mini-switch" for="routing-enabled-toggle">
+                  <input id="routing-enabled-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="routing-threshold-input">Split threshold (chars)</label>
+                <input class="setting-number" id="routing-threshold-input" type="number" min="1" max="5000" step="1" value="80" />
+              </div>
+              <div class="setting-row">
+                <label for="routing-short-corner-select">Short -> corner</label>
+                <select class="setting-select" id="routing-short-corner-select">
+                  <option value="bottom-left">Bottom left</option>
+                  <option value="bottom-right">Bottom right</option>
+                  <option value="top-left">Top left</option>
+                  <option value="top-right">Top right</option>
+                </select>
+              </div>
+              <div class="setting-row">
+                <label for="routing-long-corner-select">Long -> corner</label>
+                <select class="setting-select" id="routing-long-corner-select">
+                  <option value="top-right">Top right</option>
+                  <option value="top-left">Top left</option>
+                  <option value="bottom-right">Bottom right</option>
+                  <option value="bottom-left">Bottom left</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Message filter</div>
+              <div class="setting-toggle-row">
+                <label for="allow-long-toggle">Allow long messages</label>
+                <label class="mini-switch" for="allow-long-toggle">
+                  <input id="allow-long-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="hide-timestamp-only-toggle">Hide timestamp-only comments</label>
+                <label class="mini-switch" for="hide-timestamp-only-toggle">
+                  <input id="hide-timestamp-only-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="max-chars-input">Max chars (when off)</label>
+                <input class="setting-number" id="max-chars-input" type="number" min="1" max="5000" step="1" value="300" />
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Comment Fetch</div>
+              <div class="setting-row">
+                <label for="comment-fetch-startup-pages-input">Startup pages</label>
+                <input class="setting-number" id="comment-fetch-startup-pages-input" type="number" min="1" max="5" step="1" value="1" />
+                <small class="setting-hint">Immediate pages fetched on video load.</small>
+              </div>
+              <div class="setting-row">
+                <label for="comment-scan-delay-input">Start delay (sec)</label>
+                <input class="setting-number" id="comment-scan-delay-input" type="number" min="0" max="20" step="0.1" value="3" />
+                <small class="setting-hint">Wait before starting scan on video load.</small>
+              </div>
+              <div class="setting-row">
+                <label for="comment-fetch-max-pages-input">Max pages</label>
+                <input class="setting-number" id="comment-fetch-max-pages-input" type="number" min="1" max="200" step="1" value="8" />
+                <small class="setting-hint">Total fetch cap per video in normal mode.</small>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="comment-fetch-aggressive-toggle">Aggressive full scan</label>
+                <label class="mini-switch" for="comment-fetch-aggressive-toggle">
+                  <input id="comment-fetch-aggressive-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="comment-fetch-adaptive-toggle">Adaptive fetch mode</label>
+                <label class="mini-switch" for="comment-fetch-adaptive-toggle">
+                  <input id="comment-fetch-adaptive-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="live-page-markers-toggle">Live page-by-page dots</label>
+                <label class="mini-switch" for="live-page-markers-toggle">
+                  <input id="live-page-markers-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="section-title">Export</div>
+              <div class="setting-row setting-row-full">
+                <button class="action-button" id="copy-settings-button" type="button">
+                  Copy all settings (JSON)
+                </button>
+                <small id="copy-settings-status" class="setting-hint"></small>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <script src="./popup.js"></script>
+  </body>
+</html>
