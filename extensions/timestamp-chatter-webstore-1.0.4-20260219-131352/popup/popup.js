@@ -1130,6 +1130,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const livePageMarkersToggle = document.getElementById("live-page-markers-toggle");
   const copySettingsButton = document.getElementById("copy-settings-button");
   const copySettingsStatus = document.getElementById("copy-settings-status");
+  const copyDebugTierListButton = document.getElementById("copy-debug-tier-list-button");
+  const copyDebugTierListStatus = document.getElementById("copy-debug-tier-list-status");
   const rescanNowButton = document.getElementById("rescan-now-button");
   const rescanNowStatus = document.getElementById("rescan-now-status");
   const topLikedCutoffInline = document.getElementById("top-liked-cutoff-inline");
@@ -2311,6 +2313,47 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  async function copyDebugTimestampTierListToClipboard() {
+    if (!copyDebugTierListButton) {
+      return;
+    }
+    if (copyDebugTierListStatus) {
+      copyDebugTierListStatus.textContent = "Collecting from current YouTube tab...";
+    }
+    try {
+      const activeTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const activeWatchTab = (activeTabs || []).find((tab) =>
+        /^https:\/\/www\.youtube\.com\/watch\?/.test(String(tab?.url || ""))
+      );
+      const response = await chrome.runtime.sendMessage({
+        type: "copy_debug_timestamp_tier_list",
+        tabId: activeWatchTab?.id ?? null
+      });
+      const payload = String(response?.text || "").trim();
+      if (!payload) {
+        if (copyDebugTierListStatus) {
+          if (response?.reason === "no_youtube_tab") {
+            copyDebugTierListStatus.textContent = "Open a YouTube watch tab first.";
+          } else if (response?.reason === "no_data") {
+            copyDebugTierListStatus.textContent =
+              "No timestamped comments loaded yet for this tab.";
+          } else {
+            copyDebugTierListStatus.textContent = "No timestamped comments found.";
+          }
+        }
+        return;
+      }
+      await navigator.clipboard.writeText(payload);
+      if (copyDebugTierListStatus) {
+        copyDebugTierListStatus.textContent = "Copied timestamp tier list.";
+      }
+    } catch (error) {
+      if (copyDebugTierListStatus) {
+        copyDebugTierListStatus.textContent = "Could not copy debug list.";
+      }
+    }
+  }
+
   async function applySelectedPresetAndSave() {
     const presetProfile = minimalModeToggle.checked ? "minimal" : "balanced";
     applyPresetToControls(presetProfile);
@@ -2804,6 +2847,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   if (copySettingsButton) {
     copySettingsButton.addEventListener("click", copySettingsSnapshotToClipboard);
+  }
+  if (copyDebugTierListButton) {
+    copyDebugTierListButton.addEventListener(
+      "click",
+      copyDebugTimestampTierListToClipboard
+    );
   }
   if (rescanNowButton) {
     rescanNowButton.addEventListener("click", async () => {
