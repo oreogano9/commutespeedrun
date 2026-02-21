@@ -433,123 +433,221 @@ let RARITY_SKINS = {
 
 const timestampRegex = /(\d{1,}):([0-5]\d)(?::([0-5]\d))?/;
 let upcomingDotElement = null;
-const EYE_ICON_OPEN_PNG_URL = chrome.runtime.getURL("images/eye-open.png");
-const EYE_ICON_CLOSED_PNG_URL = chrome.runtime.getURL("images/eye-closed.png");
-const EYE_ICON_OPEN_SVG_URL = chrome.runtime.getURL("images/eye-open.svg");
-const EYE_ICON_CLOSED_SVG_URL = chrome.runtime.getURL("images/eye-closed.svg");
-let eyeIconOpenDataUrl = "";
-let eyeIconClosedDataUrl = "";
+const EYE_STATE_LOADING = "loading";
+const EYE_STATE_OPEN = "eye";
+const EYE_STATE_CLOSED = "crossed-eye";
+const EYE_TRANSITION_DURATION_MS = 620;
+let eyeVisualState = EYE_STATE_LOADING;
+let eyeVisualTransitionTimerId = null;
 
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(reader.error || new Error("Failed to convert blob to data URL"));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function preloadEyeIconDataUrls() {
-  const fetchAsDataUrl = async (urls) => {
-    for (const url of urls) {
-      try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          continue;
-        }
-        const blob = await response.blob();
-        const dataUrl = await blobToDataUrl(blob);
-        if (dataUrl) {
-          return dataUrl;
-        }
-      } catch (error) {
-        debugLog("Eye icon candidate failed", url, error);
-      }
-    }
-    return "";
-  };
-
-  try {
-    [eyeIconOpenDataUrl, eyeIconClosedDataUrl] = await Promise.all([
-      fetchAsDataUrl([EYE_ICON_OPEN_PNG_URL, EYE_ICON_OPEN_SVG_URL]),
-      fetchAsDataUrl([EYE_ICON_CLOSED_PNG_URL, EYE_ICON_CLOSED_SVG_URL])
-    ]);
-    updateEyeToggleVisibility();
-  } catch (error) {
-    debugLog("Eye icon preload fallback", error);
+function getEyeSteadySvgMarkup(state) {
+  if (state === EYE_STATE_CLOSED) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+        <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+        <line x1="20" y1="100" x2="100" y2="20" />
+      </g>
+    </svg>`;
   }
-}
-
-function getEyeIconUrl(closed) {
-  if (closed) {
-    return eyeIconClosedDataUrl || EYE_ICON_CLOSED_SVG_URL;
+  if (state === EYE_STATE_OPEN) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+        <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+      </g>
+    </svg>`;
   }
-  return eyeIconOpenDataUrl || EYE_ICON_OPEN_SVG_URL;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+    <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 15 30 H 105 V 80 H 45 L 20 100 V 80 H 15 Z" />
+      <line x1="35" y1="55" x2="85" y2="55" stroke-width="6" stroke="rgba(255,255,255,0.3)"/>
+      <circle cx="35" cy="55" r="5" fill="white" stroke="none">
+        <animate attributeName="cx" values="35; 85; 35" dur="1.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1" />
+      </circle>
+    </g>
+  </svg>`;
 }
-preloadEyeIconDataUrls();
 
-function getEyeIconFallbackDataUrl(closed) {
-  const svg = closed
-    ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><path d="M2.2 12c1.9-3.6 5.4-6 9.8-6s7.9 2.4 9.8 6c-1.9 3.6-5.4 6-9.8 6s-7.9-2.4-9.8-6Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 12a2.5 2.5 0 1 0 5 0a2.5 2.5 0 0 0-5 0Z" fill="white"/><path d="m3 3 18 18" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>`
-    : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"><path d="M2.2 12c1.9-3.6 5.4-6 9.8-6s7.9 2.4 9.8 6c-1.9 3.6-5.4 6-9.8 6s-7.9-2.4-9.8-6Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.6" fill="white"/></svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+function getEyeTransitionSvgMarkup(fromState, toState) {
+  const begin = "0s";
+  if (fromState === EYE_STATE_LOADING && toState === EYE_STATE_OPEN) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <g transform-origin="60 60">
+          <animateTransform attributeName="transform" type="scale" from="1" to="0.6" begin="${begin}" dur="0.35s" fill="freeze" calcMode="spline" keySplines="0.4 0 1 1" />
+          <animate attributeName="opacity" from="1" to="0" begin="${begin}" dur="0.26s" fill="freeze" />
+          <path d="M 15 30 H 105 V 80 H 45 L 20 100 V 80 H 15 Z" />
+          <line x1="35" y1="55" x2="85" y2="55" stroke-width="6" stroke="rgba(255,255,255,0.3)"/>
+          <circle cx="35" cy="55" r="5" fill="white" stroke="none">
+            <animate attributeName="cx" values="35; 85; 35" dur="1.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1" />
+          </circle>
+        </g>
+        <g opacity="0" transform-origin="60 60" transform="scale(0.6)">
+          <animateTransform attributeName="transform" type="scale" from="0.6" to="1" begin="0.16s" dur="0.42s" fill="freeze" calcMode="spline" keySplines="0 0 0.2 1" />
+          <animate attributeName="opacity" from="0" to="1" begin="0.16s" dur="0.36s" fill="freeze" />
+          <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+          <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+        </g>
+      </g>
+    </svg>`;
+  }
+  if (fromState === EYE_STATE_LOADING && toState === EYE_STATE_CLOSED) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <g transform-origin="60 60">
+          <animateTransform attributeName="transform" type="scale" from="1" to="0.6" begin="${begin}" dur="0.35s" fill="freeze" calcMode="spline" keySplines="0.4 0 1 1" />
+          <animate attributeName="opacity" from="1" to="0" begin="${begin}" dur="0.26s" fill="freeze" />
+          <path d="M 15 30 H 105 V 80 H 45 L 20 100 V 80 H 15 Z" />
+          <line x1="35" y1="55" x2="85" y2="55" stroke-width="6" stroke="rgba(255,255,255,0.3)"/>
+          <circle cx="35" cy="55" r="5" fill="white" stroke="none">
+            <animate attributeName="cx" values="35; 85; 35" dur="1.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1" />
+          </circle>
+        </g>
+        <g opacity="0" transform-origin="60 60" transform="scale(0.6)">
+          <animateTransform attributeName="transform" type="scale" from="0.6" to="1" begin="0.16s" dur="0.42s" fill="freeze" calcMode="spline" keySplines="0 0 0.2 1" />
+          <animate attributeName="opacity" from="0" to="1" begin="0.16s" dur="0.36s" fill="freeze" />
+          <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+          <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+          <line x1="20" y1="100" x2="100" y2="20" />
+        </g>
+      </g>
+    </svg>`;
+  }
+  if (fromState === EYE_STATE_OPEN && toState === EYE_STATE_LOADING) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <g transform-origin="60 60">
+          <animateTransform attributeName="transform" type="scale" from="1" to="0.6" begin="${begin}" dur="0.35s" fill="freeze" calcMode="spline" keySplines="0.4 0 1 1" />
+          <animate attributeName="opacity" from="1" to="0" begin="${begin}" dur="0.26s" fill="freeze" />
+          <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+          <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+        </g>
+        <g opacity="0" transform-origin="60 60" transform="scale(0.6)">
+          <animateTransform attributeName="transform" type="scale" from="0.6" to="1" begin="0.16s" dur="0.42s" fill="freeze" calcMode="spline" keySplines="0 0 0.2 1" />
+          <animate attributeName="opacity" from="0" to="1" begin="0.16s" dur="0.36s" fill="freeze" />
+          <path d="M 15 30 H 105 V 80 H 45 L 20 100 V 80 H 15 Z" />
+          <line x1="35" y1="55" x2="85" y2="55" stroke-width="6" stroke="rgba(255,255,255,0.3)"/>
+          <circle cx="35" cy="55" r="5" fill="white" stroke="none">
+            <animate attributeName="cx" values="35; 85; 35" dur="1.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1" />
+          </circle>
+        </g>
+      </g>
+    </svg>`;
+  }
+  if (fromState === EYE_STATE_OPEN && toState === EYE_STATE_CLOSED) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <g transform-origin="60 60">
+          <animateTransform attributeName="transform" type="scale" values="1; 0.85; 1" begin="${begin}" dur="0.26s" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1" />
+          <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+          <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+        </g>
+        <line x1="20" y1="100" x2="100" y2="20" stroke-dasharray="120" stroke-dashoffset="120">
+          <animate attributeName="stroke-dashoffset" from="120" to="0" begin="${begin}" dur="0.2s" fill="freeze" calcMode="spline" keySplines="0 0 0.2 1" />
+        </line>
+      </g>
+    </svg>`;
+  }
+  if (fromState === EYE_STATE_CLOSED && toState === EYE_STATE_LOADING) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <g transform-origin="60 60">
+          <animateTransform attributeName="transform" type="scale" from="1" to="0.6" begin="${begin}" dur="0.35s" fill="freeze" calcMode="spline" keySplines="0.4 0 1 1" />
+          <animate attributeName="opacity" from="1" to="0" begin="${begin}" dur="0.26s" fill="freeze" />
+          <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+          <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+          <line x1="20" y1="100" x2="100" y2="20" />
+        </g>
+        <g opacity="0" transform-origin="60 60" transform="scale(0.6)">
+          <animateTransform attributeName="transform" type="scale" from="0.6" to="1" begin="0.16s" dur="0.42s" fill="freeze" calcMode="spline" keySplines="0 0 0.2 1" />
+          <animate attributeName="opacity" from="0" to="1" begin="0.16s" dur="0.36s" fill="freeze" />
+          <path d="M 15 30 H 105 V 80 H 45 L 20 100 V 80 H 15 Z" />
+          <line x1="35" y1="55" x2="85" y2="55" stroke-width="6" stroke="rgba(255,255,255,0.3)"/>
+          <circle cx="35" cy="55" r="5" fill="white" stroke="none">
+            <animate attributeName="cx" values="35; 85; 35" dur="1.5s" repeatCount="indefinite" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1" />
+          </circle>
+        </g>
+      </g>
+    </svg>`;
+  }
+  if (fromState === EYE_STATE_CLOSED && toState === EYE_STATE_OPEN) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
+      <g stroke="white" fill="none" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+        <g transform-origin="60 60">
+          <animateTransform attributeName="transform" type="scale" values="1; 0.85; 1" begin="${begin}" dur="0.26s" calcMode="spline" keySplines="0.4 0 0.2 1; 0.4 0 0.2 1" />
+          <path d="M 10 60 Q 60 10 110 60 Q 60 110 10 60 Z" />
+          <circle cx="60" cy="60" r="18" fill="white" stroke="none" />
+        </g>
+        <line x1="20" y1="100" x2="100" y2="20" stroke-dasharray="120" stroke-dashoffset="0">
+          <animate attributeName="stroke-dashoffset" from="0" to="120" begin="${begin}" dur="0.2s" fill="freeze" calcMode="spline" keySplines="0 0 0.2 1" />
+        </line>
+      </g>
+    </svg>`;
+  }
+  return "";
 }
 
-function updateEyeIconElement() {
+function getEyeSvgDataUrl(markup) {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(String(markup || ""))}`;
+}
+
+function updateEyeIconElement(force = false) {
   if (!eyeToggleElement) {
     return;
   }
   let icon = eyeToggleElement.querySelector(".overlay-eye-icon");
-  const installInlineSvgFallback = () => {
-    const replacement = document.createElement("span");
-    replacement.className = "overlay-eye-icon";
-    replacement.setAttribute("aria-hidden", "true");
-    if (icon) {
-      icon.replaceWith(replacement);
-    } else {
-      eyeToggleElement.appendChild(replacement);
-    }
-    icon = replacement;
-    icon.replaceChildren(createEyeIconSvg(notificationsMutedByEye));
-  };
-
-  if (icon && icon.tagName !== "IMG") {
-    const replacement = document.createElement("img");
-    replacement.className = "overlay-eye-icon";
-    replacement.alt = "";
-    replacement.decoding = "sync";
-    replacement.loading = "eager";
-    icon.replaceWith(replacement);
-    icon = replacement;
-  }
   if (!icon) {
     icon = document.createElement("img");
     icon.className = "overlay-eye-icon";
     icon.alt = "";
     icon.decoding = "sync";
     icon.loading = "eager";
+    icon.setAttribute("aria-hidden", "true");
     eyeToggleElement.appendChild(icon);
   }
   if (icon.tagName !== "IMG") {
-    installInlineSvgFallback();
+    const replacement = document.createElement("img");
+    replacement.className = "overlay-eye-icon";
+    replacement.alt = "";
+    replacement.decoding = "sync";
+    replacement.loading = "eager";
+    replacement.setAttribute("aria-hidden", "true");
+    icon.replaceWith(replacement);
+    icon = replacement;
+  }
+
+  const targetState = commentsLoadComplete
+    ? notificationsMutedByEye
+      ? EYE_STATE_CLOSED
+      : EYE_STATE_OPEN
+    : EYE_STATE_LOADING;
+
+  if (!force && eyeVisualState === targetState) {
     return;
   }
 
-  const primaryUrl = notificationsMutedByEye ? EYE_ICON_CLOSED_SVG_URL : EYE_ICON_OPEN_SVG_URL;
-  const secondaryUrl = notificationsMutedByEye ? EYE_ICON_CLOSED_PNG_URL : EYE_ICON_OPEN_PNG_URL;
-
-  icon.onerror = () => {
-    const stage = icon.dataset.eyeLoadStage || "0";
-    if (stage === "0") {
-      icon.dataset.eyeLoadStage = "1";
-      icon.src = secondaryUrl;
-      return;
-    }
-    icon.onerror = null;
-    installInlineSvgFallback();
-  };
-  icon.dataset.eyeLoadStage = "0";
-  icon.src = primaryUrl;
+  if (eyeVisualTransitionTimerId !== null) {
+    clearTimeout(eyeVisualTransitionTimerId);
+    eyeVisualTransitionTimerId = null;
+  }
+  const transitionMarkup = getEyeTransitionSvgMarkup(eyeVisualState, targetState);
+  if (transitionMarkup) {
+    icon.src = getEyeSvgDataUrl(transitionMarkup);
+    eyeVisualTransitionTimerId = setTimeout(() => {
+      if (!eyeToggleElement) {
+        return;
+      }
+      const refreshedIcon = eyeToggleElement.querySelector(".overlay-eye-icon");
+      if (refreshedIcon) {
+        refreshedIcon.src = getEyeSvgDataUrl(getEyeSteadySvgMarkup(targetState));
+      }
+      eyeVisualTransitionTimerId = null;
+    }, EYE_TRANSITION_DURATION_MS);
+  } else {
+    icon.src = getEyeSvgDataUrl(getEyeSteadySvgMarkup(targetState));
+  }
+  eyeVisualState = targetState;
 }
 
 function clamp(value, min, max) {
@@ -945,58 +1043,6 @@ function applyTierMarkerVisualStyle(marker, tierConfig, tierRank = 0) {
   marker.classList.remove("effect-glow", "effect-pulse", "effect-rainbow-cycle", "effect-sheen");
 }
 
-function createSvgElement(tag, attributes = {}) {
-  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  Object.entries(attributes).forEach(([key, value]) => {
-    element.setAttribute(key, String(value));
-  });
-  return element;
-}
-
-function createEyeIconSvg(closed) {
-  const svg = createSvgElement("svg", {
-    viewBox: "0 0 24 24",
-    role: "img",
-    "aria-hidden": "true"
-  });
-
-  const outline = createSvgElement("path", {
-    d: "M2.2 12c1.9-3.6 5.4-6 9.8-6s7.9 2.4 9.8 6c-1.9 3.6-5.4 6-9.8 6s-7.9-2.4-9.8-6Z",
-    fill: "none",
-    stroke: "#fff",
-    "stroke-width": "2",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round"
-  });
-  svg.appendChild(outline);
-
-  if (closed) {
-    const pupil = createSvgElement("path", {
-      d: "M9.5 12a2.5 2.5 0 1 0 5 0a2.5 2.5 0 0 0-5 0Z",
-      fill: "#fff"
-    });
-    const slash = createSvgElement("path", {
-      d: "m3 3 18 18",
-      fill: "none",
-      stroke: "#fff",
-      "stroke-width": "2",
-      "stroke-linecap": "round"
-    });
-    svg.appendChild(pupil);
-    svg.appendChild(slash);
-  } else {
-    const pupil = createSvgElement("circle", {
-      cx: "12",
-      cy: "12",
-      r: "2.6",
-      fill: "#fff"
-    });
-    svg.appendChild(pupil);
-  }
-
-  return svg;
-}
-
 function isPlayerHoverActive() {
   const host = getOverlayHost() || videoContainer;
   if (!host) {
@@ -1156,13 +1202,13 @@ function ensureEyeToggle() {
   eyeToggleElement.setAttribute("aria-label", "Disable timestamp notifications");
   eyeToggleElement.title = "Disable timestamp notifications";
   eyeToggleElement.classList.toggle("muted", notificationsMutedByEye);
-  updateEyeIconElement();
+  updateEyeIconElement(true);
   eyeToggleElement.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     notificationsMutedByEye = !notificationsMutedByEye;
     eyeToggleElement.classList.toggle("muted", notificationsMutedByEye);
-    updateEyeIconElement();
+    updateEyeIconElement(true);
     eyeToggleElement.setAttribute(
       "aria-label",
       notificationsMutedByEye ? "Enable timestamp notifications" : "Disable timestamp notifications"
@@ -3214,6 +3260,11 @@ function resetVariables() {
   geometricTierRankByCommentSource = new Map();
   contextualVisibilityLocks = new Map();
   clickLandingRubberbandByCommentId = new Map();
+  if (eyeVisualTransitionTimerId !== null) {
+    clearTimeout(eyeVisualTransitionTimerId);
+    eyeVisualTransitionTimerId = null;
+  }
+  eyeVisualState = EYE_STATE_LOADING;
   if (eyeToggleElement && eyeToggleElement.parentElement) {
     eyeToggleElement.remove();
   }
@@ -3520,6 +3571,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     recomputeLikeTierThresholds();
     hideOverlay();
     scheduleRenderTimeMarkers();
+    updateEyeToggleVisibility();
     if (monitoringInitialized === false) {
       startMonitoring();
     }
@@ -3543,6 +3595,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     recomputeLikeTierThresholds();
     scheduleRenderTimeMarkers();
+    updateEyeToggleVisibility();
     if (monitoringInitialized === false) {
       startMonitoring();
     }
