@@ -39,7 +39,7 @@ const DEFAULT_LIVE_PAGE_MARKER_UPDATES = true;
 const DEFAULT_COMMENT_SCAN_START_DELAY_SEC = 3;
 const DEFAULT_PRESET_PROFILE = "balanced";
 const DEFAULT_RARITY_SKIN = "default";
-const DEFAULT_RARITY_LOGIC_MODE = "thresholds";
+const DEFAULT_RARITY_LOGIC_MODE = "geometric";
 const DEFAULT_RARITY_GEOMETRIC_RATIO = 2.23;
 const MIN_GOLD_TIER_LIKES = 15;
 const MIN_PLATINUM_TIER_LIKES = 28;
@@ -91,7 +91,7 @@ const MIN_RARITY_GEOMETRIC_RATIO = 1.05;
 const MAX_RARITY_GEOMETRIC_RATIO = 3.0;
 const PRESET_PROFILE_VALUES = ["minimal", "balanced"];
 const RARITY_SKIN_VALUES = ["default", "borderlands", "borderlands2", "minecraft", "animalcrossing"];
-const RARITY_LOGIC_MODE_VALUES = ["thresholds", "percentile", "geometric"];
+const RARITY_LOGIC_MODE_VALUES = ["geometric"];
 const DEFAULT_OVERLAY_RADIUS_BY_SKIN = Object.freeze({
   default: DEFAULT_OVERLAY_RADIUS,
   borderlands: DEFAULT_OVERLAY_RADIUS,
@@ -827,7 +827,7 @@ function applySettingHoverDescriptions() {
     },
     "top-liked-threshold-slider": {
       name: "Top-liked threshold",
-      description: "Sets how selective popularity tiers are by percentile."
+      description: "Shows cutoff previews for the current tier distribution."
     },
     "popularity-mode-toggle": {
       name: "Temporary popularity mode",
@@ -839,7 +839,8 @@ function applySettingHoverDescriptions() {
     },
     "rarity-logic-select": {
       name: "Rarity logic",
-      description: "Switches tier assignment between thresholds, percentile-only, and geometric weighted quotas."
+      description:
+        "Uses two-mode assignment: unlock tiers by distinct likes first, then geometric weighted quotas once enough distinct levels exist."
     },
     "rarity-geometric-ratio-slider": {
       name: "Geometric ratio",

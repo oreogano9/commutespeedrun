@@ -968,9 +968,7 @@
               <div class="setting-row">
                 <label for="rarity-logic-select">Rarity logic</label>
                 <select class="setting-select" id="rarity-logic-select">
-                  <option value="thresholds">Current default</option>
-                  <option value="percentile">Percentile only</option>
-                  <option value="geometric">Geometric (smooth weights)</option>
+                  <option value="geometric">Unlock + Geometric quotas</option>
                 </select>
                 <small class="setting-hint">Chooses how comments are assigned to rarity tiers.</small>
               </div>
@@ -997,7 +995,7 @@
                 <label for="top-liked-threshold-slider">Top-liked threshold</label>
                 <output id="top-liked-threshold-value" for="top-liked-threshold-slider">12%</output>
                 <input class="setting-slider" id="top-liked-threshold-slider" type="range" min="1" max="50" step="1" value="12" />
-                <small id="top-liked-cutoff-inline" class="setting-hint">Gold cutoff: calculating...</small>
+                <small id="top-liked-cutoff-inline" class="setting-hint">Tier cutoff preview</small>
               </div>
               <div class="setting-toggle-row">
                 <label for="priority-scoring-toggle">Priority scoring</label>

@@ -64,7 +64,7 @@ const DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS = true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
 const DEFAULT_PRESET_PROFILE = "balanced";
 const DEFAULT_RARITY_SKIN = "default";
-const DEFAULT_RARITY_LOGIC_MODE = "thresholds";
+const DEFAULT_RARITY_LOGIC_MODE = "geometric";
 const DEFAULT_RARITY_GEOMETRIC_RATIO = 2.23;
 let DEFAULT_HIDDEN_RARITY_TIERS_BY_SKIN = Object.freeze({
   default: {},
@@ -184,7 +184,7 @@ const CARD_DRAG_CLICK_SUPPRESS_MS = 320;
 const FREE_POSITION_MARGIN_PX = 8;
 const CORNERS = ["bottom-left", "bottom-right", "top-left", "top-right"];
 let RARITY_SKIN_VALUES = ["default", "borderlands", "borderlands2", "minecraft", "animalcrossing"];
-const RARITY_LOGIC_MODE_VALUES = ["thresholds", "percentile", "geometric"];
+const RARITY_LOGIC_MODE_VALUES = ["geometric"];
 let RARITY_SKINS = {
   default: {
     tiers: [
@@ -1308,26 +1308,6 @@ function getPriorityScore(comment) {
   return likes * priorityLikesWeight;
 }
 
-function collectUniqueSortedLikes(sourceComments, includeZero = false) {
-  const likeBySource = new Map();
-  (sourceComments || []).forEach((comment) => {
-    const sourceKey = comment?.sourceId || comment?.id;
-    const likes = Number(comment?.likes || 0);
-    if (!sourceKey || !Number.isFinite(likes)) {
-      return;
-    }
-    if (!includeZero && likes <= 0) {
-      return;
-    }
-    const previous = likeBySource.get(sourceKey) || 0;
-    if (likes > previous) {
-      likeBySource.set(sourceKey, likes);
-    }
-  });
-
-  return [...likeBySource.values()].sort((a, b) => b - a);
-}
-
 function allocateIntegersByWeights(total, weights) {
   const count = Math.max(0, Math.floor(Number(total || 0)));
   if (count <= 0 || !Array.isArray(weights) || weights.length === 0) {
@@ -1362,71 +1342,6 @@ function geometricWeights(count, ratio) {
   return Array.from({ length: size }, (_, index) => Math.pow(safeRatio, index));
 }
 
-function computeGeometricCountsHighToLow(totalItems, tierCount, ratio) {
-  const total = Math.max(0, Math.floor(Number(totalItems || 0)));
-  const count = Math.max(1, Math.floor(Number(tierCount || 0)));
-  const safeRatio = clamp(
-    Number(ratio || DEFAULT_RARITY_GEOMETRIC_RATIO),
-    MIN_RARITY_GEOMETRIC_RATIO,
-    MAX_RARITY_GEOMETRIC_RATIO
-  );
-  const counts = new Array(count).fill(0);
-  if (total <= 0) {
-    return counts;
-  }
-  if (total <= count) {
-    for (let index = 0; index < total; index += 1) {
-      counts[index] = 1;
-    }
-    return counts;
-  }
-
-  for (let index = 0; index < count; index += 1) {
-    counts[index] = 1;
-  }
-  counts[0] = 1;
-  const extras = total - count;
-  const extraWeights = new Array(Math.max(0, count - 1))
-    .fill(0)
-    .map((_, index) => Math.pow(safeRatio, index));
-  const allocatedExtras = allocateIntegersByWeights(extras, extraWeights);
-  for (let index = 1; index < count; index += 1) {
-    counts[index] += Number(allocatedExtras[index - 1] || 0);
-  }
-  return counts;
-}
-
-function computeGeometricTierThresholds(sortedLikes, tierConfigs, ratio) {
-  const thresholds = Object.create(null);
-  const tiers = Array.isArray(tierConfigs) ? tierConfigs : [];
-  const likes = Array.isArray(sortedLikes) ? sortedLikes : [];
-  if (tiers.length === 0) {
-    return thresholds;
-  }
-  thresholds[tiers[0].key] = 0;
-  if (likes.length === 0) {
-    tiers.slice(1).forEach((tierConfig) => {
-      thresholds[tierConfig.key] = Number.POSITIVE_INFINITY;
-    });
-    return thresholds;
-  }
-
-  const highToLowCounts = computeGeometricCountsHighToLow(likes.length, tiers.length, ratio);
-  const lowToHighCounts = highToLowCounts.slice().reverse();
-  for (let index = 1; index < tiers.length; index += 1) {
-    const countForTierAndAbove = lowToHighCounts
-      .slice(index)
-      .reduce((sum, value) => sum + Number(value || 0), 0);
-    if (countForTierAndAbove <= 0) {
-      thresholds[tiers[index].key] = Number.POSITIVE_INFINITY;
-      continue;
-    }
-    const rankIndex = Math.max(0, Math.min(likes.length - 1, countForTierAndAbove - 1));
-    thresholds[tiers[index].key] = Number(likes[rankIndex] || 0);
-  }
-  return thresholds;
-}
-
 function buildUniqueCommentLikeEntries(sourceComments) {
   const bySource = new Map();
   for (const comment of sourceComments || []) {
@@ -1453,139 +1368,100 @@ function computeGeometricTierRanksBySource(sourceComments) {
     return result;
   }
   const entries = buildUniqueCommentLikeEntries(sourceComments);
-  const total = entries.length;
-  if (total <= 0) {
+  if (entries.length <= 0) {
+    return result;
+  }
+  const distinctLikeLevels = new Set(entries.map((entry) => entry.likes)).size;
+
+  if (distinctLikeLevels < tierCount) {
+    const sortedLowToHigh = entries.slice().sort((a, b) => {
+      if (a.likes !== b.likes) {
+        return a.likes - b.likes;
+      }
+      return String(a.sourceKey).localeCompare(String(b.sourceKey));
+    });
+    const groups = [];
+    for (const entry of sortedLowToHigh) {
+      const lastGroup = groups[groups.length - 1];
+      if (!lastGroup || lastGroup.likes !== entry.likes) {
+        groups.push({ likes: entry.likes, items: [entry] });
+      } else {
+        lastGroup.items.push(entry);
+      }
+    }
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+      const runtimeTierRank = Math.min(tierCount - 1, groupIndex);
+      for (const entry of groups[groupIndex].items) {
+        result.set(entry.sourceKey, runtimeTierRank);
+      }
+    }
     return result;
   }
 
-  const quotasQualityOrder = allocateIntegersByWeights(
-    total,
+  const quotasBestToWorst = allocateIntegersByWeights(
+    entries.length,
     geometricWeights(tierCount, rarityGeometricRatio)
   );
-  const oneLike = [];
-  const rest = [];
-  for (const entry of entries) {
-    if (entry.likes === 1) {
-      oneLike.push(entry);
-    } else {
-      rest.push(entry);
-    }
-  }
-
-  rest.sort((a, b) => {
+  const sortedHighToLow = entries.slice().sort((a, b) => {
     if (b.likes !== a.likes) {
       return b.likes - a.likes;
     }
     return String(a.sourceKey).localeCompare(String(b.sourceKey));
   });
-
-  const remainingQuotas = quotasQualityOrder.slice();
-  const worstQualityIndex = tierCount - 1;
-  remainingQuotas[worstQualityIndex] = Math.max(
-    0,
-    Number(remainingQuotas[worstQualityIndex] || 0) - oneLike.length
-  );
-
-  for (const entry of oneLike) {
-    // Force likes==1 to the lowest/common tier.
-    result.set(entry.sourceKey, 0);
-  }
-
   let cursor = 0;
-  for (let qualityIndex = 0; qualityIndex < tierCount; qualityIndex += 1) {
-    const take = Math.max(0, Number(remainingQuotas[qualityIndex] || 0));
-    for (let offset = 0; offset < take && cursor < rest.length; offset += 1) {
-      const entry = rest[cursor++];
-      const rankLowToHigh = tierCount - 1 - qualityIndex;
-      result.set(entry.sourceKey, rankLowToHigh);
+  for (let bestTierIndex = 0; bestTierIndex < tierCount; bestTierIndex += 1) {
+    const take = Math.max(0, Number(quotasBestToWorst[bestTierIndex] || 0));
+    const runtimeTierRank = tierCount - 1 - bestTierIndex;
+    for (let offset = 0; offset < take && cursor < sortedHighToLow.length; offset += 1) {
+      result.set(sortedHighToLow[cursor].sourceKey, runtimeTierRank);
+      cursor += 1;
     }
   }
-  while (cursor < rest.length) {
-    const entry = rest[cursor++];
-    result.set(entry.sourceKey, 0);
+  while (cursor < sortedHighToLow.length) {
+    result.set(sortedHighToLow[cursor].sourceKey, 0);
+    cursor += 1;
   }
   return result;
 }
 
-function computePercentileThreshold(sortedLikes, thresholdPercent, fallback = 0) {
-  const likes = Array.isArray(sortedLikes) ? sortedLikes : [];
-  if (likes.length === 0) {
-    return fallback;
-  }
-  const ratio = clamp(
-    Number(thresholdPercent || DEFAULT_TOP_LIKED_THRESHOLD_PERCENT),
-    MIN_TOP_LIKED_THRESHOLD_PERCENT,
-    MAX_TOP_LIKED_THRESHOLD_PERCENT
-  ) / 100;
-  const poolSize = Math.max(1, Math.ceil(likes.length * ratio));
-  return Number(likes[poolSize - 1] || fallback || 0);
-}
-
-function computeTierThresholds(sourceComments) {
+function computeTierThresholds(sourceComments, precomputedRanks = null) {
   const tierConfigs = getTierConfigs();
-  const baseTierKey = tierConfigs[0]?.key || "silver";
-  const likes =
-    rarityLogicMode === "geometric"
-      ? collectUniqueSortedLikes(sourceComments, true)
-      : collectUniqueSortedLikes(sourceComments);
-  if (likes.length === 0) {
-    const thresholds = Object.create(null);
-    thresholds[baseTierKey] = 0;
+  const thresholds = Object.create(null);
+  const baseTierKey = tierConfigs[0]?.key;
+  if (!baseTierKey) {
+    return thresholds;
+  }
+  thresholds[baseTierKey] = 0;
+  if (tierConfigs.length <= 1) {
+    return thresholds;
+  }
+
+  const entries = buildUniqueCommentLikeEntries(sourceComments);
+  if (entries.length === 0) {
     tierConfigs.slice(1).forEach((tierConfig) => {
       thresholds[tierConfig.key] = Number.POSITIVE_INFINITY;
     });
     return thresholds;
   }
 
-  if (rarityLogicMode === "geometric") {
-    return computeGeometricTierThresholds(likes, tierConfigs, rarityGeometricRatio);
-  }
-
-  const thresholds = Object.create(null);
-  thresholds[baseTierKey] = 0;
-
-  let previousThreshold = 0;
-  let goldLikeThreshold = 0;
-  for (let index = 1; index < tierConfigs.length; index += 1) {
-    const tierConfig = tierConfigs[index];
-    const percentileFactor = Number(tierConfig.percentileFactor || 1);
-    const percentile = clamp(
-      topLikedThresholdPercent * percentileFactor,
-      MIN_TOP_LIKED_THRESHOLD_PERCENT,
-      MAX_TOP_LIKED_THRESHOLD_PERCENT
-    );
-    const percentileCutoff = computePercentileThreshold(likes, percentile, previousThreshold);
-    let nextThreshold = percentileCutoff;
-    if (rarityLogicMode !== "percentile") {
-      const fromPrevious = previousThreshold + Number(tierConfig.minGapFromPrevious || 0);
-      const fromGold =
-        index > 1 && Number.isFinite(tierConfig.minGapFromGold)
-          ? goldLikeThreshold + Number(tierConfig.minGapFromGold)
-          : Number.NEGATIVE_INFINITY;
-      nextThreshold = Math.max(
-        Number(tierConfig.minLikes || 0),
-        percentileCutoff,
-        fromPrevious,
-        fromGold
-      );
+  const rankBySource =
+    precomputedRanks instanceof Map ? precomputedRanks : computeGeometricTierRanksBySource(sourceComments);
+  for (let tierIndex = 1; tierIndex < tierConfigs.length; tierIndex += 1) {
+    let cutoff = Number.POSITIVE_INFINITY;
+    for (const entry of entries) {
+      const rank = Number(rankBySource.get(entry.sourceKey));
+      if (Number.isFinite(rank) && rank >= tierIndex && entry.likes < cutoff) {
+        cutoff = entry.likes;
+      }
     }
-
-    thresholds[tierConfig.key] = nextThreshold;
-    previousThreshold = nextThreshold;
-    if (index === 1) {
-      goldLikeThreshold = nextThreshold;
-    }
+    thresholds[tierConfigs[tierIndex].key] = cutoff;
   }
-
   return thresholds;
 }
 
 function recomputeLikeTierThresholds() {
-  activeTierThresholds = computeTierThresholds(comments);
-  geometricTierRankByCommentSource =
-    rarityLogicMode === "geometric"
-      ? computeGeometricTierRanksBySource(comments)
-      : new Map();
+  geometricTierRankByCommentSource = computeGeometricTierRanksBySource(comments);
+  activeTierThresholds = computeTierThresholds(comments, geometricTierRankByCommentSource);
   const nonPopularityKeys = getNonPopularityTierKeys();
   nonPopularityPrimaryThreshold = getTierThresholdByKey(nonPopularityKeys.primary);
   nonPopularityEliteThreshold = getTierThresholdByKey(nonPopularityKeys.elite);
@@ -1620,7 +1496,7 @@ function getTierRank(likesCount, comment = null) {
   }
 
   if (popularityModeEnabled) {
-    if (rarityLogicMode === "geometric" && comment) {
+    if (comment) {
       const sourceKey = getCommentSourceKey(comment);
       if (sourceKey && geometricTierRankByCommentSource.has(sourceKey)) {
         const mapped = Number(geometricTierRankByCommentSource.get(sourceKey));
@@ -3255,7 +3131,6 @@ function hideOverlay() {
   }
   activeCards = [];
   activeCardByCommentId.clear();
-  geometricTierRankByCommentSource.clear();
   contextualVisibilityLocks.clear();
   clickLandingRubberbandByCommentId.clear();
   if (upcomingDotElement && upcomingDotElement.parentElement) {
