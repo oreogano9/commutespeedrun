@@ -4,6 +4,7 @@ import "../shared/rarity-skins.js";
 const DEFAULT_ALLOW_LONG_MESSAGES = false;
 const DEFAULT_MAX_MESSAGE_CHARS = 300;
 const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES = true;
+const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES = true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
 const DEFAULT_COMMENT_FETCH_STARTUP_PAGES = 1;
 const DEFAULT_COMMENT_FETCH_MAX_PAGES = 8;
@@ -27,6 +28,7 @@ const lazyFetchPromises = new Map();
 let lastAllowLongMessages = DEFAULT_ALLOW_LONG_MESSAGES;
 let lastMaxMessageChars = DEFAULT_MAX_MESSAGE_CHARS;
 let lastHideTimestampOnlyMessages = DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES;
+let lastHideMultiTimestampMessages = DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES;
 let lastExperimentalGameSkinAutoEnabled = DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED;
 let lastCommentFetchStartupPages = DEFAULT_COMMENT_FETCH_STARTUP_PAGES;
 let lastCommentFetchMaxPages = DEFAULT_COMMENT_FETCH_MAX_PAGES;
@@ -43,6 +45,7 @@ function clamp(value, min, max) {
     "allowLongMessages",
     "maxMessageChars",
     "hideTimestampOnlyMessages",
+    "hideMultiTimestampMessages",
     "experimentalGameSkinAutoEnabled",
     "commentFetchStartupPages",
     "commentFetchMaxPages",
@@ -61,6 +64,9 @@ function clamp(value, min, max) {
   );
   lastHideTimestampOnlyMessages = Boolean(
     settings?.hideTimestampOnlyMessages ?? DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES
+  );
+  lastHideMultiTimestampMessages = Boolean(
+    settings?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
   );
   lastExperimentalGameSkinAutoEnabled = Boolean(
     settings?.experimentalGameSkinAutoEnabled ??
@@ -135,12 +141,25 @@ function isTimestampOnlyMessageText(text) {
   return normalized.length === 0;
 }
 
-function applyCommentFilters(comments, allowLongMessages, maxMessageChars, hideTimestampOnlyMessages) {
+function applyCommentFilters(
+  comments,
+  allowLongMessages,
+  maxMessageChars,
+  hideTimestampOnlyMessages,
+  hideMultiTimestampMessages
+) {
   return (comments || []).filter((comment) => {
     if (!allowLongMessages && String(comment?.text || "").length > maxMessageChars) {
       return false;
     }
     if (hideTimestampOnlyMessages && isTimestampOnlyMessageText(comment?.text || "")) {
+      return false;
+    }
+    if (
+      hideMultiTimestampMessages &&
+      Array.isArray(comment?.timestamps) &&
+      comment.timestamps.length > 1
+    ) {
       return false;
     }
     return true;
@@ -352,12 +371,19 @@ async function fetchAllComments(videoId) {
   return result.comments;
 }
 
-function commentsForSettings(comments, allowLongMessages, maxMessageChars, hideTimestampOnlyMessages) {
+function commentsForSettings(
+  comments,
+  allowLongMessages,
+  maxMessageChars,
+  hideTimestampOnlyMessages,
+  hideMultiTimestampMessages
+) {
   const filtered = applyCommentFilters(
     comments,
     allowLongMessages,
     maxMessageChars,
-    hideTimestampOnlyMessages
+    hideTimestampOnlyMessages,
+    hideMultiTimestampMessages
   );
   return reduceCommentsForRuntime(filtered);
 }
@@ -368,6 +394,7 @@ async function sendCommentsToVideoTabs(
   allowLongMessages,
   maxMessageChars,
   hideTimestampOnlyMessages,
+  hideMultiTimestampMessages,
   complete = true
 ) {
   const tabs = await youtubeWatchTabs();
@@ -375,7 +402,8 @@ async function sendCommentsToVideoTabs(
     comments,
     allowLongMessages,
     maxMessageChars,
-    hideTimestampOnlyMessages
+    hideTimestampOnlyMessages,
+    hideMultiTimestampMessages
   );
   for (const tab of tabs) {
     if (extractVideoIdFromUrl(tab.url) !== videoId) {
@@ -391,6 +419,7 @@ async function sendCommentsPageUpdateToVideoTabs(
   allowLongMessages,
   maxMessageChars,
   hideTimestampOnlyMessages,
+  hideMultiTimestampMessages,
   complete = false
 ) {
   const tabs = await youtubeWatchTabs();
@@ -398,7 +427,8 @@ async function sendCommentsPageUpdateToVideoTabs(
     comments || [],
     allowLongMessages,
     maxMessageChars,
-    hideTimestampOnlyMessages
+    hideTimestampOnlyMessages,
+    hideMultiTimestampMessages
   );
   if (filtered.length === 0 && !complete) {
     return;
@@ -450,7 +480,12 @@ function scheduleLazyCommentsFetch(videoId) {
           if (!lastLivePageMarkerUpdates || freshPageComments.length === 0) {
             return;
           }
-          const { allowLongMessages, maxMessageChars, hideTimestampOnlyMessages } =
+          const {
+            allowLongMessages,
+            maxMessageChars,
+            hideTimestampOnlyMessages,
+            hideMultiTimestampMessages
+          } =
             await getFilterSettings();
           await sendCommentsPageUpdateToVideoTabs(
             videoId,
@@ -458,6 +493,7 @@ function scheduleLazyCommentsFetch(videoId) {
             allowLongMessages,
             maxMessageChars,
             hideTimestampOnlyMessages,
+            hideMultiTimestampMessages,
             false
           );
         }
@@ -472,13 +508,19 @@ function scheduleLazyCommentsFetch(videoId) {
       updatedEntry.pagesFetched = alreadyFetchedPages + remainingPageLimit;
     }
 
-    const { allowLongMessages, maxMessageChars, hideTimestampOnlyMessages } = await getFilterSettings();
+    const {
+      allowLongMessages,
+      maxMessageChars,
+      hideTimestampOnlyMessages,
+      hideMultiTimestampMessages
+    } = await getFilterSettings();
     await sendCommentsToVideoTabs(
       videoId,
       result.comments,
       allowLongMessages,
       maxMessageChars,
       hideTimestampOnlyMessages,
+      hideMultiTimestampMessages,
       true
     );
   })()
@@ -497,7 +539,8 @@ async function getFilterSettings() {
   const settings = await chrome.storage.sync.get([
     "allowLongMessages",
     "maxMessageChars",
-    "hideTimestampOnlyMessages"
+    "hideTimestampOnlyMessages",
+    "hideMultiTimestampMessages"
   ]);
   return {
     allowLongMessages:
@@ -511,6 +554,9 @@ async function getFilterSettings() {
     ),
     hideTimestampOnlyMessages: Boolean(
       settings?.hideTimestampOnlyMessages ?? DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES
+    ),
+    hideMultiTimestampMessages: Boolean(
+      settings?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
     )
   };
 }
@@ -608,6 +654,7 @@ async function sendOverlaySettings(
   showLikesInNotifications,
   showUpcomingDot,
   hideTimestampOnlyMessages,
+  hideMultiTimestampMessages,
   hiddenRarityTiersBySkin,
   commentScanStartDelaySec,
   experimentalGameSkinAutoEnabled,
@@ -652,6 +699,7 @@ async function sendOverlaySettings(
     showLikesInNotifications,
     showUpcomingDot,
     hideTimestampOnlyMessages,
+    hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
     hiddenRarityTiersBySkinId,
     commentScanStartDelaySec,
@@ -670,7 +718,12 @@ async function sendOverlaySettings(
   });
 }
 
-async function sendRefilteredCommentsToTabs(allowLongMessages, maxMessageChars) {
+async function sendRefilteredCommentsToTabs(
+  allowLongMessages,
+  maxMessageChars,
+  hideTimestampOnlyMessages,
+  hideMultiTimestampMessages
+) {
   const tabs = await youtubeWatchTabs();
 
   for (const tab of tabs) {
@@ -685,7 +738,8 @@ async function sendRefilteredCommentsToTabs(allowLongMessages, maxMessageChars) 
         cacheEntry.comments,
         allowLongMessages,
         maxMessageChars,
-        lastHideTimestampOnlyMessages
+        hideTimestampOnlyMessages,
+        hideMultiTimestampMessages
       );
       await sendMessage(tab.id, {
         type: "comments_replace",
@@ -703,7 +757,12 @@ async function sendRefilteredCommentsToTabs(allowLongMessages, maxMessageChars) 
 }
 
 async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
-  const { allowLongMessages, maxMessageChars, hideTimestampOnlyMessages } = await getFilterSettings();
+  const {
+    allowLongMessages,
+    maxMessageChars,
+    hideTimestampOnlyMessages,
+    hideMultiTimestampMessages
+  } = await getFilterSettings();
   const fetchConfig = getCommentFetchConfig();
   if (!videoId || !tabId) {
     return;
@@ -723,7 +782,8 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
       cacheEntry.comments,
       allowLongMessages,
       maxMessageChars,
-      hideTimestampOnlyMessages
+      hideTimestampOnlyMessages,
+      hideMultiTimestampMessages
     );
     if (await isTabStillOnVideo(tabId, videoId)) {
       await sendMessage(tabId, {
@@ -755,6 +815,7 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
             allowLongMessages,
             maxMessageChars,
             hideTimestampOnlyMessages,
+            hideMultiTimestampMessages,
             false
           );
         }
@@ -767,11 +828,12 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
     }
 
     const reduced = commentsForSettings(
-      initialResult.comments,
-      allowLongMessages,
-      maxMessageChars,
-      hideTimestampOnlyMessages
-    );
+        initialResult.comments,
+        allowLongMessages,
+        maxMessageChars,
+        hideTimestampOnlyMessages,
+        hideMultiTimestampMessages
+      );
     if (await isTabStillOnVideo(tabId, videoId)) {
       await sendMessage(tabId, {
         type: "comments_replace",
@@ -993,11 +1055,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const hideTimestampOnlyMessages = Boolean(
       message.hideTimestampOnlyMessages ?? lastHideTimestampOnlyMessages
     );
+    const hideMultiTimestampMessages = Boolean(
+      message.hideMultiTimestampMessages ?? lastHideMultiTimestampMessages
+    );
 
     const filterSettingsChanged =
       allowLongMessages !== lastAllowLongMessages ||
       maxMessageChars !== lastMaxMessageChars ||
-      hideTimestampOnlyMessages !== lastHideTimestampOnlyMessages;
+      hideTimestampOnlyMessages !== lastHideTimestampOnlyMessages ||
+      hideMultiTimestampMessages !== lastHideMultiTimestampMessages;
     lastExperimentalGameSkinAutoEnabled = Boolean(
       message.experimentalGameSkinAutoEnabled ??
         lastExperimentalGameSkinAutoEnabled
@@ -1025,6 +1091,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     lastAllowLongMessages = allowLongMessages;
     lastMaxMessageChars = maxMessageChars;
     lastHideTimestampOnlyMessages = hideTimestampOnlyMessages;
+    lastHideMultiTimestampMessages = hideMultiTimestampMessages;
 
     sendOverlaySettings(
       message.overlayScale,
@@ -1055,6 +1122,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.showLikesInNotifications,
       message.showUpcomingDot,
       hideTimestampOnlyMessages,
+      hideMultiTimestampMessages,
       message.hiddenRarityTiersBySkin,
       message.commentScanStartDelaySec,
       lastExperimentalGameSkinAutoEnabled,
@@ -1070,7 +1138,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
 
     if (filterSettingsChanged) {
-      sendRefilteredCommentsToTabs(allowLongMessages, maxMessageChars);
+      sendRefilteredCommentsToTabs(
+        allowLongMessages,
+        maxMessageChars,
+        hideTimestampOnlyMessages,
+        hideMultiTimestampMessages
+      );
     }
     return true;
   }

@@ -30,6 +30,7 @@ const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
 const DEFAULT_SHOW_UPCOMING_DOT = true;
 const DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS = true;
 const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES = true;
+const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES = true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
 const DEFAULT_COMMENT_FETCH_STARTUP_PAGES = 1;
 const DEFAULT_COMMENT_FETCH_MAX_PAGES = 8;
@@ -405,6 +406,7 @@ async function getConfigs() {
       "showLikesInNotifications",
       "showUpcomingDot",
       "hideTimestampOnlyMessages",
+      "hideMultiTimestampMessages",
       "hiddenRarityTiersBySkin",
       "hiddenRarityTiersBySkinId",
       "showRarityLabelInNotifications",
@@ -562,6 +564,9 @@ async function getConfigs() {
   const hideTimestampOnlyMessages = Boolean(
     storedSync?.hideTimestampOnlyMessages ?? DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES
   );
+  const hideMultiTimestampMessages = Boolean(
+    storedSync?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
+  );
   const hiddenMapSource =
     storedSync?.[SYNC_HIDDEN_RARITY_TIERS_BY_SKIN_ID_KEY] ??
     storedSync?.hiddenRarityTiersBySkin ??
@@ -650,6 +655,7 @@ async function getConfigs() {
     showLikesInNotifications,
     showUpcomingDot,
     hideTimestampOnlyMessages,
+    hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
     [SYNC_HIDDEN_RARITY_TIERS_BY_SKIN_ID_KEY]: hiddenRarityTiersBySkin,
     experimentalGameSkinAutoEnabled,
@@ -713,6 +719,7 @@ async function getConfigs() {
     showLikesInNotifications,
     showUpcomingDot,
     hideTimestampOnlyMessages,
+    hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
     experimentalGameSkinAutoEnabled,
     commentFetchStartupPages,
@@ -963,6 +970,7 @@ async function broadcastOverlaySettings({
   showLikesInNotifications,
   showUpcomingDot,
   hideTimestampOnlyMessages,
+  hideMultiTimestampMessages,
   hiddenRarityTiersBySkin,
   experimentalGameSkinAutoEnabled,
   commentFetchStartupPages,
@@ -1010,6 +1018,7 @@ async function broadcastOverlaySettings({
     showLikesInNotifications,
     showUpcomingDot,
     hideTimestampOnlyMessages,
+    hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
     hiddenRarityTiersBySkinId: hiddenRarityTiersBySkin,
     experimentalGameSkinAutoEnabled,
@@ -1055,6 +1064,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const debugToggle = document.getElementById("debug-toggle");
   const allowLongToggle = document.getElementById("allow-long-toggle");
   const hideTimestampOnlyToggle = document.getElementById("hide-timestamp-only-toggle");
+  const hideMultiTimestampToggle = document.getElementById("hide-multi-timestamp-toggle");
   const maxCharsInput = document.getElementById("max-chars-input");
   const earlyModeToggle = document.getElementById("early-mode-toggle");
   const followPlaybackSpeedToggle = document.getElementById("follow-playback-speed-toggle");
@@ -1172,6 +1182,239 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  const getSettingRow = (element) =>
+    element?.closest?.(".setting-row, .setting-toggle-row, .setting-row-full") || null;
+
+  const setSettingRowVisible = (element, visible) => {
+    const row = getSettingRow(element);
+    if (row) {
+      row.style.display = visible ? "" : "none";
+    }
+  };
+
+  function createEditorFieldGroup(titleText) {
+    const group = document.createElement("div");
+    group.className = "editor-field-group";
+    const title = document.createElement("div");
+    title.className = "editor-field-group-title";
+    title.textContent = titleText;
+    group.appendChild(title);
+    return group;
+  }
+
+  function appendRowsToEditorGroup(group, elements) {
+    elements
+      .map((element) => getSettingRow(element))
+      .filter(Boolean)
+      .forEach((row) => {
+        group.appendChild(row);
+      });
+  }
+
+  function renderEditorStickyPreviewMeta() {
+    if (!IS_EDITOR_MODE) {
+      return;
+    }
+    const skinLine = document.getElementById("editor-preview-skin-line");
+    const tierChip = document.getElementById("editor-preview-tier-chip");
+    const tierSwatch = document.getElementById("editor-preview-tier-swatch");
+    const tierLabel = document.getElementById("editor-preview-tier-label");
+    const tierKey = document.getElementById("editor-preview-tier-key");
+    const skin = getSelectedSkinConfig();
+    const tier = getSelectedTier();
+
+    if (skinLine) {
+      skinLine.textContent = skin ? `Skin: ${skin.name}` : "Skin: -";
+    }
+    if (!tierChip || !tierSwatch || !tierLabel || !tierKey) {
+      return;
+    }
+    if (!tier) {
+      tierChip.style.display = "none";
+      return;
+    }
+    tierChip.style.display = "inline-flex";
+    tierSwatch.style.background = rarityShared.normalizeHexColor(
+      tier.bodyColor,
+      "#94A3B8"
+    );
+    tierLabel.textContent = tier.label || "Tier";
+    tierKey.textContent = tier.key ? `(${tier.key})` : "";
+  }
+
+  function initEditorModeLayout() {
+    if (!IS_EDITOR_MODE) {
+      return;
+    }
+    const settingsCard = document.querySelector(".settings");
+    const rarityPage = document.querySelector('.settings-page[data-page="rarity"]');
+    const header = document.querySelector("header");
+    if (!settingsCard || !rarityPage || !popupRarityEditorSection) {
+      return;
+    }
+
+    settingsCard.classList.add("editor-window");
+    if (toggleButton) {
+      toggleButton.style.display = "none";
+    }
+    if (editorConnectedTabs && header && editorConnectedTabs.parentElement !== header) {
+      editorConnectedTabs.classList.add("editor-header-status");
+      editorConnectedTabs.style.display = "block";
+      header.appendChild(editorConnectedTabs);
+    }
+
+    setSettingRowVisible(rarityPreviewGrid, false);
+    setSettingRowVisible(rarityEditorSkinIdInput, false);
+
+    let editorShell = rarityPage.querySelector(".editor-shell");
+    let editorMainColumn = rarityPage.querySelector(".editor-main-column");
+    let editorPreviewColumn = rarityPage.querySelector(".editor-preview-column");
+    let editorStickyPreview = rarityPage.querySelector(".editor-sticky-preview");
+
+    if (!editorShell) {
+      editorShell = document.createElement("div");
+      editorShell.className = "editor-shell";
+      editorMainColumn = document.createElement("div");
+      editorMainColumn.className = "editor-main-column";
+      editorPreviewColumn = document.createElement("div");
+      editorPreviewColumn.className = "editor-preview-column";
+      editorStickyPreview = document.createElement("div");
+      editorStickyPreview.className = "editor-sticky-preview";
+      editorPreviewColumn.appendChild(editorStickyPreview);
+      editorShell.append(editorMainColumn, editorPreviewColumn);
+      rarityPage.appendChild(editorShell);
+    }
+
+    const raritySections = Array.from(rarityPage.querySelectorAll(":scope > .settings-section"));
+    const raritySetupSection =
+      raritySections.find((section) => section !== popupRarityEditorSection) || null;
+    if (raritySetupSection && raritySetupSection.parentElement !== editorMainColumn) {
+      editorMainColumn.appendChild(raritySetupSection);
+    }
+    if (popupRarityEditorSection.parentElement !== editorMainColumn) {
+      editorMainColumn.appendChild(popupRarityEditorSection);
+    }
+
+    let previewPanel = editorStickyPreview.querySelector(".editor-preview-panel");
+    if (!previewPanel) {
+      previewPanel = document.createElement("div");
+      previewPanel.className = "editor-preview-panel";
+
+      const previewTitle = document.createElement("div");
+      previewTitle.className = "section-title";
+      previewTitle.textContent = "Live Preview";
+
+      const previewMeta = document.createElement("div");
+      previewMeta.className = "editor-preview-meta";
+
+      const skinLine = document.createElement("div");
+      skinLine.className = "editor-preview-meta-line";
+      skinLine.id = "editor-preview-skin-line";
+
+      const tierChip = document.createElement("div");
+      tierChip.className = "editor-preview-tier-chip";
+      tierChip.id = "editor-preview-tier-chip";
+
+      const tierSwatch = document.createElement("span");
+      tierSwatch.className = "swatch";
+      tierSwatch.id = "editor-preview-tier-swatch";
+
+      const tierLabel = document.createElement("span");
+      tierLabel.id = "editor-preview-tier-label";
+
+      const tierKey = document.createElement("span");
+      tierKey.className = "key";
+      tierKey.id = "editor-preview-tier-key";
+
+      tierChip.append(tierSwatch, tierLabel, tierKey);
+      previewMeta.append(skinLine, tierChip);
+      previewPanel.append(previewTitle, previewMeta);
+      editorStickyPreview.appendChild(previewPanel);
+    }
+
+    const livePreviewRow = getSettingRow(rarityLivePreviewCard);
+    if (livePreviewRow && livePreviewRow.parentElement !== previewPanel) {
+      previewPanel.appendChild(livePreviewRow);
+    }
+
+    if (popupRarityEditorSection.dataset.editorCategorized !== "1") {
+      const sectionTitle = popupRarityEditorSection.querySelector(".section-title");
+      const groups = [];
+
+      const skinStyleGroup = createEditorFieldGroup("Skin Style");
+      appendRowsToEditorGroup(skinStyleGroup, [
+        rarityEditorSkinNameInput,
+        rarityStyleFamilySelect,
+        rarityStyleRadiusSlider,
+        rarityStyleBorderEnabledToggle,
+        rarityStyleBorderWidthInput,
+        rarityStylePackOpacitySlider
+      ]);
+      groups.push(skinStyleGroup);
+
+      const tierListGroup = createEditorFieldGroup("Tier List");
+      appendRowsToEditorGroup(tierListGroup, [rarityTierList]);
+      groups.push(tierListGroup);
+
+      const tierIdentityGroup = createEditorFieldGroup("Tier Identity");
+      appendRowsToEditorGroup(tierIdentityGroup, [rarityTierLabelInput, rarityTierKeyInput]);
+      groups.push(tierIdentityGroup);
+
+      const visualColorsGroup = createEditorFieldGroup("Visual Colors");
+      appendRowsToEditorGroup(visualColorsGroup, [
+        rarityTierBodyColorInput,
+        rarityTierTextColorInput,
+        rarityTierBorderColorInput,
+        rarityTierMarkerColorInput
+      ]);
+      groups.push(visualColorsGroup);
+
+      const timelineMarkerGroup = createEditorFieldGroup("Timeline Marker");
+      appendRowsToEditorGroup(timelineMarkerGroup, [
+        rarityTierMarkerWidthInput,
+        rarityTierMarkerHeightInput,
+        rarityTierMarkerOffsetInput
+      ]);
+      groups.push(timelineMarkerGroup);
+
+      const assignmentLogicGroup = createEditorFieldGroup("Assignment Logic");
+      appendRowsToEditorGroup(assignmentLogicGroup, [
+        rarityTierPercentileFactorInput,
+        rarityTierMinLikesInput,
+        rarityTierMinGapPrevInput,
+        rarityTierMinGapPrimaryInput
+      ]);
+      groups.push(assignmentLogicGroup);
+
+      const weightingGroup = createEditorFieldGroup("Weighting & Display");
+      appendRowsToEditorGroup(weightingGroup, [
+        rarityTierHeatmapWeightInput,
+        rarityTierDurationMultiplierInput
+      ]);
+      groups.push(weightingGroup);
+
+      const effectsGroup = createEditorFieldGroup("Effects");
+      appendRowsToEditorGroup(effectsGroup, [rarityTierEffectsList]);
+      groups.push(effectsGroup);
+
+      const importExportGroup = createEditorFieldGroup("Import / Export");
+      appendRowsToEditorGroup(importExportGroup, [rarityExportSkinButton]);
+      groups.push(importExportGroup);
+
+      groups.forEach((group) => {
+        if (group.childElementCount > 1) {
+          popupRarityEditorSection.appendChild(group);
+        }
+      });
+      if (sectionTitle) {
+        sectionTitle.textContent = "Rarity skin editor";
+      }
+      popupRarityEditorSection.dataset.editorCategorized = "1";
+    }
+
+    renderEditorStickyPreviewMeta();
+  }
+
   settingsTabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       activateSettingsTab(tab.dataset.tab || "overlay");
@@ -1190,6 +1433,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   if (IS_EDITOR_MODE) {
+    initEditorModeLayout();
     settingsTabs.forEach((tab) => {
       tab.style.display = "none";
     });
@@ -1202,22 +1446,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (title) {
       title.textContent = "Rarity editor";
     }
-    const toggleRow = (element, visible) => {
-      if (!element) {
-        return;
-      }
-      const row = element.closest(".setting-row, .setting-toggle-row, .setting-row-full");
-      if (row) {
-        row.style.display = visible ? "" : "none";
-      }
-    };
-    toggleRow(popularityModeToggle, false);
-    toggleRow(topLikedThresholdSlider, false);
-    toggleRow(priorityScoringToggle, false);
-    toggleRow(priorityLikesWeightInput, false);
-    toggleRow(showRarityLabelToggle, false);
-    toggleRow(heatmapEnabledToggle, false);
-    toggleRow(heatmapIntensitySlider, false);
+    setSettingRowVisible(popularityModeToggle, false);
+    setSettingRowVisible(topLikedThresholdSlider, false);
+    setSettingRowVisible(priorityScoringToggle, false);
+    setSettingRowVisible(priorityLikesWeightInput, false);
+    setSettingRowVisible(showRarityLabelToggle, false);
+    setSettingRowVisible(heatmapEnabledToggle, false);
+    setSettingRowVisible(heatmapIntensitySlider, false);
+    setSettingRowVisible(rarityPreviewGrid, false);
+    setSettingRowVisible(rarityEditorSkinIdInput, false);
     if (editorConnectedTabs) {
       editorConnectedTabs.style.display = "block";
       chrome.tabs
@@ -1269,6 +1506,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   allowLongToggle.checked = configs.allowLongMessages;
   hideTimestampOnlyToggle.checked = configs.hideTimestampOnlyMessages;
+  hideMultiTimestampToggle.checked = configs.hideMultiTimestampMessages;
   maxCharsInput.value = String(configs.maxMessageChars);
   maxCharsInput.disabled = configs.allowLongMessages;
   earlyModeToggle.checked = configs.earlyModeEnabled;
@@ -1564,6 +1802,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (rarityTierEffectsList) {
         rarityTierEffectsList.replaceChildren();
       }
+      renderEditorStickyPreviewMeta();
       return;
     }
 
@@ -1594,6 +1833,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
     renderTierEffectsEditor(tier);
     renderLiveNotificationPreview();
+    renderEditorStickyPreviewMeta();
   }
 
   function renderTierList() {
@@ -1658,9 +1898,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderTierList();
     renderTierEditor();
     renderLiveNotificationPreview();
+    renderEditorStickyPreviewMeta();
   }
 
   function renderRarityPreview(raritySkinId) {
+    if (IS_EDITOR_MODE) {
+      return;
+    }
     if (!rarityPreviewGrid) {
       return;
     }
@@ -1940,6 +2184,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const debugMode = debugToggle ? Boolean(debugToggle.checked) : configs.debugMode;
     const allowLongMessages = Boolean(allowLongToggle.checked);
     const hideTimestampOnlyMessages = Boolean(hideTimestampOnlyToggle.checked);
+    const hideMultiTimestampMessages = Boolean(hideMultiTimestampToggle.checked);
     const maxMessageChars = clamp(
       Number(maxCharsInput.value || DEFAULT_MAX_MESSAGE_CHARS),
       MIN_MAX_MESSAGE_CHARS,
@@ -2087,6 +2332,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       showRarityLabelInNotifications,
       showUpcomingDot,
       hideTimestampOnlyMessages,
+      hideMultiTimestampMessages,
       hiddenRarityTiersBySkin: hiddenBySkinId,
       hiddenRarityTiersBySkinId: hiddenBySkinId,
       experimentalGameSkinAutoEnabled,
@@ -2145,6 +2391,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const debugMode = debugToggle ? Boolean(debugToggle.checked) : configs.debugMode;
     const allowLongMessages = Boolean(allowLongToggle.checked);
     const hideTimestampOnlyMessages = Boolean(hideTimestampOnlyToggle.checked);
+    const hideMultiTimestampMessages = Boolean(hideMultiTimestampToggle.checked);
     const maxMessageChars = clamp(
       Number(maxCharsInput.value || DEFAULT_MAX_MESSAGE_CHARS),
       MIN_MAX_MESSAGE_CHARS,
@@ -2266,6 +2513,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       showRarityLabelInNotifications,
       showUpcomingDot,
       hideTimestampOnlyMessages,
+      hideMultiTimestampMessages,
       hiddenRarityTiersBySkin: normalizeHiddenRarityTiersBySkin(hiddenRarityTiersBySkin),
       hiddenRarityTiersBySkinId: normalizeHiddenRarityTiersBySkin(hiddenRarityTiersBySkin),
       experimentalGameSkinAutoEnabled,
@@ -2426,6 +2674,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   allowLongToggle.addEventListener("change", saveOverlaySettings);
   hideTimestampOnlyToggle.addEventListener("change", saveOverlaySettings);
+  hideMultiTimestampToggle.addEventListener("change", saveOverlaySettings);
   maxCharsInput.addEventListener("change", saveOverlaySettings);
   earlyModeToggle.addEventListener("change", saveOverlaySettings);
   followPlaybackSpeedToggle.addEventListener("change", saveOverlaySettings);
