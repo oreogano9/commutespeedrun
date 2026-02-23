@@ -639,18 +639,14 @@
   width: 48px;
   min-width: 48px;
   height: 48px;
-  border: none;
-  background-color: transparent;
   color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  box-shadow: none;
   opacity: 0;
   transform: scale(0.92);
   transition: opacity 0.12s ease, transform 0.12s ease;
   pointer-events: none;
-  cursor: pointer;
   z-index: 2;
   padding: 0;
   outline: none;
@@ -659,10 +655,6 @@
 }
 
 .overlay-eye-toggle.ytp-button {
-  border-radius: 0 !important;
-  border: none !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
@@ -676,31 +668,7 @@
   min-height: 48px !important;
   align-self: center !important;
   transform: none !important;
-}
-
-.overlay-eye-toggle .overlay-eye-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  margin: 0;
-  pointer-events: none;
-  color: #fff;
-  line-height: 0;
-}
-
-.overlay-eye-toggle img.overlay-eye-icon {
-  display: block;
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-}
-
-.overlay-eye-toggle .overlay-eye-icon svg {
-  display: block;
-  width: 100%;
-  height: 100%;
+  overflow: visible !important;
 }
 
 .overlay-eye-toggle.ytp-button.in-controls-strip {
@@ -725,22 +693,416 @@
   opacity: 1;
 }
 
+.overlay-eye-toggle {
+  overflow: visible;
+}
+
+.overlay-eye-toggle .overlay-settings-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.16s ease, transform 0.2s ease, opacity 0.16s ease;
+}
+
+.overlay-eye-toggle .overlay-settings-btn:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+
+.overlay-eye-toggle .overlay-settings-btn.active {
+  transform: rotate(90deg);
+}
+
+.overlay-eye-toggle .overlay-settings-btn.is-loading {
+  opacity: 0.86;
+}
+
+.overlay-eye-toggle .overlay-settings-btn.is-loading .overlay-settings-btn-icon {
+  animation: tc-quickmenu-spin 1.6s linear infinite;
+}
+
+.overlay-eye-toggle .overlay-settings-btn.is-muted {
+  opacity: 0.78;
+}
+
+.overlay-eye-toggle .overlay-settings-btn-icon {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  pointer-events: none;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.overlay-eye-toggle .overlay-settings-btn-icon svg,
+.overlay-eye-toggle .overlay-settings-btn-icon img,
+.overlay-eye-toggle .overlay-settings-btn-icon .overlay-settings-btn-icon-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.overlay-eye-toggle .overlay-settings-menu {
+  position: absolute;
+  width: 270px;
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: rgb(28 28 28 / 0.96);
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgb(0 0 0 / 0.42);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+  pointer-events: none;
+  color: #fff;
+  z-index: 10030;
+}
+
+.overlay-eye-toggle .overlay-settings-menu.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.overlay-eye-toggle .overlay-settings-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overlay-eye-toggle .overlay-settings-menu::-webkit-scrollbar-thumb {
+  background: #717171;
+  border-radius: 4px;
+}
+
+.overlay-eye-toggle .overlay-settings-menu::-webkit-scrollbar-thumb:hover {
+  background: #909090;
+}
+
+.overlay-eye-toggle .menu-panel {
+  display: none;
+  padding: 8px 0;
+}
+
+.overlay-eye-toggle .menu-panel.active {
+  display: block;
+}
+
+.overlay-eye-toggle .menu-list {
+  display: block;
+}
+
+.overlay-eye-toggle .menu-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 15px;
+  cursor: pointer;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+  margin-bottom: 4px;
+  font-weight: 700;
+  font-size: 14px;
+  position: sticky;
+  top: -8px;
+  background: rgb(28 28 28 / 0.96);
+  z-index: 2;
+}
+
+.overlay-eye-toggle .menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 15px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.overlay-eye-toggle .menu-item:hover,
+.overlay-eye-toggle .menu-header:hover {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.overlay-eye-toggle .menu-item.is-selected {
+  background: rgb(62 166 255 / 0.12);
+}
+
+.overlay-eye-toggle .menu-item-status {
+  cursor: default;
+}
+
+.overlay-eye-toggle .menu-item-status:hover {
+  background: transparent;
+}
+
+.overlay-eye-toggle .selected-value {
+  color: #aaa;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.overlay-eye-toggle .toggle-switch {
+  width: 36px;
+  height: 14px;
+  background: #717171;
+  border-radius: 7px;
+  position: relative;
+  transition: background 0.2s ease;
+  flex: 0 0 auto;
+}
+
+.overlay-eye-toggle .toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.2s ease;
+}
+
+.overlay-eye-toggle .toggle-switch.on {
+  background: #3ea6ff;
+}
+
+.overlay-eye-toggle .toggle-switch.on::after {
+  left: 16px;
+}
+
 .overlay-eye-toggle.floating {
   position: absolute;
   top: 16px;
   right: 16px;
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  border-radius: 999px;
-  background: rgb(0 0 0 / 0.34);
-  backdrop-filter: blur(6px);
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
   z-index: 10010;
 }
 
-.overlay-eye-toggle:focus-visible {
+.overlay-eye-toggle .overlay-settings-btn:focus-visible {
   outline: 2px solid rgb(255 255 255 / 0.9);
   outline-offset: -2px;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn {
+  width: 48px !important;
+  height: 48px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: #fff !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.16s ease, opacity 0.16s ease;
+  vertical-align: middle !important;
+  overflow: visible !important;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn:hover {
+  background: rgb(255 255 255 / 0.1) !important;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn.active {
+  background: rgb(255 255 255 / 0.08) !important;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn.is-loading .tc-yt-settings-btn-icon {
+  animation: tc-quickmenu-spin 1.4s linear infinite;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn.is-click-spin:not(.is-loading) .tc-yt-settings-btn-icon {
+  animation: tc-quickmenu-spin 0.45s cubic-bezier(0.4, 0, 0.2, 1) 1;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn.is-muted {
+  opacity: 0.75;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn-icon {
+  width: 33px;
+  height: 33px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: #fff;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.overlay-eye-toggle .tc-yt-settings-btn-icon img,
+.overlay-eye-toggle .tc-yt-settings-btn-icon .tc-yt-settings-btn-icon-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.tc-yt-quick-menu {
+  position: fixed;
+  width: 270px;
+  max-height: 380px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: rgb(28 28 28 / 0.96);
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgb(0 0 0 / 0.42);
+  color: #fff;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+  pointer-events: none;
+  z-index: 10030;
+  font-family: Roboto, Arial, sans-serif;
+}
+
+.tc-yt-quick-menu.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.tc-yt-quick-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tc-yt-quick-menu::-webkit-scrollbar-thumb {
+  background: #717171;
+  border-radius: 4px;
+}
+
+.tc-yt-quick-menu::-webkit-scrollbar-thumb:hover {
+  background: #909090;
+}
+
+.tc-yt-quick-menu .menu-panel {
+  display: none;
+  padding: 8px 0;
+}
+
+.tc-yt-quick-menu .menu-panel.active {
+  display: block;
+}
+
+.tc-yt-quick-menu .menu-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 15px;
+  cursor: pointer;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+  margin-bottom: 4px;
+  font-weight: 700;
+  font-size: 14px;
+  position: sticky;
+  top: -8px;
+  background: rgb(28 28 28 / 0.96);
+  z-index: 2;
+}
+
+.tc-yt-quick-menu .menu-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 15px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.tc-yt-quick-menu .menu-item:hover,
+.tc-yt-quick-menu .menu-header:hover {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.tc-yt-quick-menu .menu-item.is-selected {
+  background: rgb(62 166 255 / 0.12);
+}
+
+.tc-yt-quick-menu .menu-item-status {
+  cursor: default;
+}
+
+.tc-yt-quick-menu .menu-item-status:hover {
+  background: transparent;
+}
+
+.tc-yt-quick-menu .menu-item-status-load {
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+  margin-top: 2px;
+  padding-top: 9px;
+}
+
+.tc-yt-quick-menu .menu-item-status-load .selected-value,
+.tc-yt-quick-menu .menu-item-status-load .js-load-status-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.25;
+  display: block;
+  width: 100%;
+}
+
+.tc-yt-quick-menu .selected-value {
+  color: #aaa;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.tc-yt-quick-menu .toggle-switch {
+  width: 36px;
+  height: 14px;
+  background: #717171;
+  border-radius: 7px;
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.tc-yt-quick-menu .toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  transition: left 0.2s ease;
+}
+
+.tc-yt-quick-menu .toggle-switch.on {
+  background: #3ea6ff;
+}
+
+.tc-yt-quick-menu .toggle-switch.on::after {
+  left: 16px;
+}
+
+@keyframes tc-quickmenu-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .overlay-upcoming-dot.visible {

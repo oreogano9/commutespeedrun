@@ -25,6 +25,8 @@ let eyeMountHeartbeatIntervalId = null;
 let contextualVisibilityLocks = new Map();
 let clickLandingRubberbandByCommentId = new Map();
 let commentsLoadComplete = false;
+let commentsLoadPagesFetched = null;
+let commentsLoadPagesTarget = null;
 let cardDragState = null;
 let suppressCardClickUntil = 0;
 let suppressGlobalClickUntil = 0;
@@ -94,6 +96,7 @@ let priorityLikesWeight = DEFAULT_PRIORITY_LIKES_WEIGHT;
 let topLikedThresholdPercent = DEFAULT_TOP_LIKED_THRESHOLD_PERCENT;
 let popularityModeEnabled = DEFAULT_POPULARITY_MODE_ENABLED;
 let heatmapEnabled = DEFAULT_HEATMAP_ENABLED;
+let timelineMarkersEnabled = true;
 let heatmapIntensity = DEFAULT_HEATMAP_INTENSITY;
 let routingEnabled = DEFAULT_ROUTING_ENABLED;
 let routingThreshold = DEFAULT_ROUTING_THRESHOLD;
@@ -439,6 +442,45 @@ const EYE_STATE_CLOSED = "crossed-eye";
 const EYE_TRANSITION_DURATION_MS = 620;
 let eyeVisualState = EYE_STATE_LOADING;
 let eyeVisualTransitionTimerId = null;
+let quickMenuOpen = false;
+let quickMenuActivePanel = "main";
+let quickMenuStatusText = "";
+let quickMenuStatusTimerId = null;
+let quickMenuGlobalDocumentHandlersAttached = false;
+let quickMenuMenuElement = null;
+
+function isTabOverlayEnabled() {
+  return !notificationsMutedByEye;
+}
+
+function isOverlayRuntimeEnabled() {
+  return Boolean(isActive && isTabOverlayEnabled());
+}
+
+function pauseTimestampRuntime() {
+  clearStartupRequestTimers();
+  detachVideoMonitoring();
+  hideOverlay();
+  clearMarkers();
+  setUpcomingDotVisible(false);
+}
+
+function resumeTimestampRuntime({ runScan = true } = {}) {
+  const video = getVideo();
+  if (video && monitoringInitialized === false) {
+    startMonitoring();
+  }
+  if (video) {
+    scheduleReconcile(video.currentTime);
+  }
+  scheduleRenderTimeMarkers();
+  if (runScan) {
+    const videoId = currentVideoId || getVideoId();
+    if (videoId) {
+      scheduleCommentsRequest(videoId, 0, 0);
+    }
+  }
+}
 
 function getEyeSteadySvgMarkup(state) {
   if (state === EYE_STATE_CLOSED) {
@@ -592,62 +634,476 @@ function getEyeSvgDataUrl(markup) {
   return `data:image/svg+xml;utf8,${encodeURIComponent(String(markup || ""))}`;
 }
 
-function updateEyeIconElement(force = false) {
-  if (!eyeToggleElement) {
+function getQuickMenuButtonSvgMarkup() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+    <path fill="#FFFFFF" fill-rule="evenodd" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22l-1.92 3.32c-.12.22-.07.49.12.61l2.03 1.58c-.04.3-.06.62-.06.94s.02.64.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.49-.12-.61l-2.03-1.58z M12 8.5c-1.93 0-3.5 1.57-3.5 3.5 0 1.05.47 2.01 1.22 2.66l-.47 1.84 1.95-1.04c.26.06.53.09.8.09 1.93 0 3.5-1.57 3.5-3.5S13.93 8.5 12 8.5z"/>
+  </svg>`;
+}
+
+function getQuickMenuButtonSvgDataUrl() {
+  return getEyeSvgDataUrl(getQuickMenuButtonSvgMarkup());
+}
+
+function setQuickMenuStatus(message = "", timeoutMs = 1600) {
+  quickMenuStatusText = String(message || "");
+  if (quickMenuStatusTimerId !== null) {
+    clearTimeout(quickMenuStatusTimerId);
+    quickMenuStatusTimerId = null;
+  }
+  if (quickMenuStatusText && timeoutMs > 0) {
+    quickMenuStatusTimerId = setTimeout(() => {
+      quickMenuStatusText = "";
+      quickMenuStatusTimerId = null;
+      updateEyeIconElement(true);
+    }, timeoutMs);
+  }
+  updateEyeIconElement(true);
+}
+
+function getQuickMenuLoadStatusText() {
+  const timestampsCount = Number.isFinite(comments?.length) ? comments.length : 0;
+  if (commentsLoadComplete) {
+    const pagesFetched = Number.isFinite(commentsLoadPagesFetched)
+      ? Math.max(0, Math.floor(commentsLoadPagesFetched))
+      : null;
+    if (pagesFetched !== null && pagesFetched > 0) {
+      return `Timestamps loaded (${pagesFetched} pages, ${timestampsCount} timestamps)`;
+    }
+    return `Timestamps loaded (${timestampsCount} timestamps)`;
+  }
+  const pagesFetched = Number.isFinite(commentsLoadPagesFetched)
+    ? Math.max(0, Math.floor(commentsLoadPagesFetched))
+    : 0;
+  if (pagesFetched > 0) {
+    return `Timestamps loading... (${pagesFetched} pages scanned so far, ${timestampsCount} timestamps)`;
+  }
+  return `Timestamps loading... (${timestampsCount} timestamps)`;
+}
+
+function getQuickMenuSkinEntries() {
+  if (rarityShared && raritySkinCatalog?.skins?.length) {
+    return raritySkinCatalog.skins.map((skin) => ({
+      id: normalizeRaritySkin(skin.id),
+      name: String(skin.name || skin.id || "Skin")
+    }));
+  }
+  return Object.keys(RARITY_SKINS || {}).map((skinId) => ({
+    id: normalizeRaritySkin(skinId),
+    name: String(RARITY_SKINS?.[skinId]?.name || skinId)
+  }));
+}
+
+function setQuickMenuPanel(panelName) {
+  quickMenuActivePanel = panelName === "skins" ? "skins" : "main";
+  updateEyeIconElement(true);
+}
+
+function setQuickMenuOpen(nextOpen) {
+  quickMenuOpen = Boolean(nextOpen);
+  if (!quickMenuOpen) {
+    quickMenuActivePanel = "main";
+  }
+  updateEyeIconElement(true);
+}
+
+function positionQuickMenu(button, menu) {
+  if (!button || !menu) {
     return;
   }
-  let icon = eyeToggleElement.querySelector(".overlay-eye-icon");
-  if (!icon) {
-    icon = document.createElement("img");
-    icon.className = "overlay-eye-icon";
-    icon.alt = "";
-    icon.decoding = "sync";
-    icon.loading = "eager";
-    icon.setAttribute("aria-hidden", "true");
-    eyeToggleElement.appendChild(icon);
-  }
-  if (icon.tagName !== "IMG") {
-    const replacement = document.createElement("img");
-    replacement.className = "overlay-eye-icon";
-    replacement.alt = "";
-    replacement.decoding = "sync";
-    replacement.loading = "eager";
-    replacement.setAttribute("aria-hidden", "true");
-    icon.replaceWith(replacement);
-    icon = replacement;
-  }
+  const buttonRect = button.getBoundingClientRect();
+  const menuWidth = 270;
+  const menuHeight = Math.max(220, menu.offsetHeight || 0);
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 1280;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 720;
+  const desiredLeft = Math.round(buttonRect.left + (buttonRect.width / 2) - (menuWidth / 2));
+  const desiredTop = Math.round(buttonRect.top - menuHeight - 10);
+  const clampedLeft = Math.min(Math.max(8, desiredLeft), Math.max(8, viewportWidth - menuWidth - 8));
+  const clampedTop = Math.min(Math.max(8, desiredTop), Math.max(8, viewportHeight - menuHeight - 8));
+  menu.style.left = `${clampedLeft}px`;
+  menu.style.top = `${clampedTop}px`;
+  menu.style.bottom = "auto";
+  menu.style.right = "auto";
+}
 
-  const targetState = commentsLoadComplete
-    ? notificationsMutedByEye
-      ? EYE_STATE_CLOSED
-      : EYE_STATE_OPEN
-    : EYE_STATE_LOADING;
-
-  if (!force && eyeVisualState === targetState) {
-    return;
-  }
-
-  if (eyeVisualTransitionTimerId !== null) {
-    clearTimeout(eyeVisualTransitionTimerId);
-    eyeVisualTransitionTimerId = null;
-  }
-  const transitionMarkup = getEyeTransitionSvgMarkup(eyeVisualState, targetState);
-  if (transitionMarkup) {
-    icon.src = getEyeSvgDataUrl(transitionMarkup);
-    eyeVisualTransitionTimerId = setTimeout(() => {
-      if (!eyeToggleElement) {
-        return;
-      }
-      const refreshedIcon = eyeToggleElement.querySelector(".overlay-eye-icon");
-      if (refreshedIcon) {
-        refreshedIcon.src = getEyeSvgDataUrl(getEyeSteadySvgMarkup(targetState));
-      }
-      eyeVisualTransitionTimerId = null;
-    }, EYE_TRANSITION_DURATION_MS);
+async function setGlobalOverlayActiveFromQuickMenu(nextValue) {
+  const next = Boolean(nextValue);
+  isActive = next;
+  notificationsMutedByEye = !next;
+  try {
+    const maybePromise = chrome.storage.sync.set({ active: next });
+    if (maybePromise && typeof maybePromise.catch === "function") {
+      maybePromise.catch(() => {});
+    }
+  } catch (error) {}
+  try {
+    await chrome.runtime.sendMessage({ type: "isActive", status: next });
+  } catch (error) {}
+  if (!next) {
+    pauseTimestampRuntime();
   } else {
-    icon.src = getEyeSvgDataUrl(getEyeSteadySvgMarkup(targetState));
+    resumeTimestampRuntime({ runScan: true });
   }
-  eyeVisualState = targetState;
+  updateEyeToggleVisibility();
+}
+
+function setLocalNotificationsMutedFromQuickMenu(nextValue) {
+  notificationsMutedByEye = Boolean(nextValue);
+  if (!isOverlayRuntimeEnabled()) {
+    pauseTimestampRuntime();
+  } else {
+    resumeTimestampRuntime({ runScan: true });
+  }
+  updateEyeToggleVisibility();
+}
+
+async function sendQuickOverlaySettingPatch(patch = {}) {
+  try {
+    if (patch && typeof patch === "object") {
+      const storagePatch = {};
+      if (Object.prototype.hasOwnProperty.call(patch, "heatmapEnabled")) {
+        storagePatch.heatmapEnabled = Boolean(patch.heatmapEnabled);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "showUpcomingDot")) {
+        storagePatch.showUpcomingDot = Boolean(patch.showUpcomingDot);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "timelineMarkersEnabled")) {
+        storagePatch.timelineMarkersEnabled = Boolean(patch.timelineMarkersEnabled);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "raritySkin")) {
+        storagePatch.raritySkin = normalizeRaritySkin(patch.raritySkin);
+        storagePatch.activeRaritySkinId = storagePatch.raritySkin;
+      }
+      if (Object.keys(storagePatch).length > 0) {
+        const maybePromise = chrome.storage.sync.set(storagePatch);
+        if (maybePromise && typeof maybePromise.catch === "function") {
+          maybePromise.catch(() => {});
+        }
+      }
+    }
+  } catch (error) {}
+
+  try {
+    await chrome.runtime.sendMessage({
+      type: "overlaySettings",
+      ...patch
+    });
+  } catch (error) {}
+}
+
+async function setHeatmapEnabledFromQuickMenu(nextValue) {
+  heatmapEnabled = Boolean(nextValue);
+  await sendQuickOverlaySettingPatch({ heatmapEnabled });
+  scheduleRenderTimeMarkers();
+}
+
+async function setTimelineMarkersEnabledFromQuickMenu(nextValue) {
+  timelineMarkersEnabled = Boolean(nextValue);
+  await sendQuickOverlaySettingPatch({ timelineMarkersEnabled });
+  scheduleRenderTimeMarkers();
+}
+
+async function setShowUpcomingDotFromQuickMenu(nextValue) {
+  showUpcomingDot = Boolean(nextValue);
+  if (!showUpcomingDot) {
+    setUpcomingDotVisible(false);
+  }
+  await sendQuickOverlaySettingPatch({ showUpcomingDot });
+  scheduleRenderTimeMarkers();
+}
+
+async function setRaritySkinFromQuickMenu(nextSkinId) {
+  const nextSkin = normalizeRaritySkin(nextSkinId);
+  if (!nextSkin || nextSkin === raritySkin) {
+    setQuickMenuPanel("main");
+    return;
+  }
+  raritySkin = nextSkin;
+  const activeRaritySkinConfig = rarityShared
+    ? rarityShared.deepClone(rarityShared.getSkinById(raritySkinCatalog, nextSkin))
+    : null;
+  await sendQuickOverlaySettingPatch({
+    raritySkin: nextSkin,
+    activeRaritySkinId: nextSkin,
+    activeRaritySkinConfig,
+    raritySkinCatalogRevision
+  });
+  scheduleRenderTimeMarkers();
+  const video = getVideo();
+  if (video) {
+    scheduleReconcile(video.currentTime);
+  }
+  const nextSkinName =
+    rarityShared && raritySkinCatalog
+      ? rarityShared.getSkinById(raritySkinCatalog, nextSkin)?.name || nextSkin
+      : nextSkin;
+  setQuickMenuStatus(`Skin: ${nextSkinName}`);
+  setQuickMenuPanel("main");
+}
+
+async function triggerRescanFromQuickMenu() {
+  const videoId = getVideoId();
+  if (!videoId) {
+    setQuickMenuStatus("Open a YouTube video first.");
+    return;
+  }
+  setQuickMenuStatus("Rescan started.");
+  try {
+    await chrome.runtime.sendMessage({ type: "rescan_now", videoId });
+  } catch (error) {
+    setQuickMenuStatus("Rescan failed.", 2200);
+    return;
+  }
+}
+
+function attachQuickMenuGlobalHandlersOnce() {
+  if (quickMenuGlobalDocumentHandlersAttached) {
+    return;
+  }
+  quickMenuGlobalDocumentHandlersAttached = true;
+  document.addEventListener("click", (event) => {
+    if (!quickMenuOpen || !eyeToggleElement) {
+      return;
+    }
+    if (eyeToggleElement.contains(event.target)) {
+      return;
+    }
+    setQuickMenuOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && quickMenuOpen) {
+      setQuickMenuOpen(false);
+    }
+  });
+}
+
+function ensureQuickMenuContent() {
+  if (!eyeToggleElement) {
+    return null;
+  }
+  let button = eyeToggleElement.querySelector(".tc-yt-settings-btn");
+  let menu = quickMenuMenuElement;
+  if (button && menu) {
+    return { button, menu };
+  }
+  if (!button) {
+    eyeToggleElement.innerHTML = `
+      <button class="ytp-button tc-yt-settings-btn" type="button" aria-label="Timestamp Chatter quick menu" title="Timestamp Chatter quick menu">
+        <span class="tc-yt-settings-btn-icon"><img class="tc-yt-settings-btn-icon-img" alt="" src="${getQuickMenuButtonSvgDataUrl()}"></span>
+      </button>
+    `;
+  }
+
+  if (!quickMenuMenuElement || !quickMenuMenuElement.isConnected) {
+    const host = getOverlayHost() || document.body;
+    quickMenuMenuElement = document.createElement("div");
+    quickMenuMenuElement.className = "tc-yt-quick-menu";
+    quickMenuMenuElement.setAttribute("role", "menu");
+    quickMenuMenuElement.setAttribute("aria-hidden", "true");
+    quickMenuMenuElement.innerHTML = `
+      <div class="menu-panel menu-panel-main active" data-panel="main">
+        <div class="menu-item" data-action="toggle-global"><span>Overlay enabled</span><div class="toggle-switch"></div></div>
+        <div class="menu-item" data-action="toggle-local"><span>This Tab (on)</span><div class="toggle-switch"></div></div>
+        <div class="menu-item" data-action="toggle-markers"><span>Timeline Markers</span><div class="toggle-switch"></div></div>
+        <div class="menu-item" data-action="toggle-heatmap"><span>Heatmap</span><div class="toggle-switch"></div></div>
+        <div class="menu-item" data-action="toggle-dot"><span>Warning dot</span><div class="toggle-switch"></div></div>
+        <div class="menu-item" data-action="open-skins"><span>Rarity skin</span><span class="selected-value js-current-skin"></span></div>
+        <div class="menu-item" data-action="rescan"><span>Rescan Comments</span><span class="selected-value">Click to scan now</span></div>
+        <div class="menu-item menu-item-status menu-item-status-load" data-role="load-status"><span class="selected-value js-load-status-text"></span></div>
+        <div class="menu-item menu-item-status" data-role="status" hidden><span class="selected-value js-status-text"></span></div>
+      </div>
+      <div class="menu-panel menu-panel-skins" data-panel="skins">
+        <div class="menu-header" data-action="back-main">&lt; Rarity skin</div>
+        <div class="menu-list js-skin-list"></div>
+      </div>
+    `;
+    host.appendChild(quickMenuMenuElement);
+  }
+
+  button = eyeToggleElement.querySelector(".tc-yt-settings-btn");
+  menu = quickMenuMenuElement;
+  if (!button || !menu) {
+    return null;
+  }
+
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (commentsLoadComplete) {
+      button.classList.remove("is-click-spin");
+      // Restart the click animation if user clicks repeatedly.
+      void button.offsetWidth;
+      button.classList.add("is-click-spin");
+    }
+    setQuickMenuOpen(!quickMenuOpen);
+  });
+  button.addEventListener("animationend", () => {
+    button.classList.remove("is-click-spin");
+  });
+
+  eyeToggleElement.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  menu.addEventListener("click", async (event) => {
+    const item = event.target.closest(".menu-item, .menu-header");
+    if (!item) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const action = item.getAttribute("data-action") || "";
+    if (action === "toggle-global") {
+      await setGlobalOverlayActiveFromQuickMenu(!isActive);
+      return;
+    }
+    if (action === "toggle-local") {
+      setLocalNotificationsMutedFromQuickMenu(notificationsMutedByEye ? false : true);
+      return;
+    }
+    if (action === "toggle-markers") {
+      await setTimelineMarkersEnabledFromQuickMenu(!timelineMarkersEnabled);
+      return;
+    }
+    if (action === "toggle-heatmap") {
+      await setHeatmapEnabledFromQuickMenu(!heatmapEnabled);
+      return;
+    }
+    if (action === "toggle-dot") {
+      await setShowUpcomingDotFromQuickMenu(!showUpcomingDot);
+      return;
+    }
+    if (action === "open-skins") {
+      setQuickMenuPanel("skins");
+      return;
+    }
+    if (action === "back-main") {
+      setQuickMenuPanel("main");
+      return;
+    }
+    if (action === "rescan") {
+      await triggerRescanFromQuickMenu();
+      return;
+    }
+    if (action === "select-skin") {
+      const skinId = item.getAttribute("data-skin-id") || "";
+      await setRaritySkinFromQuickMenu(skinId);
+      return;
+    }
+  });
+
+  attachQuickMenuGlobalHandlersOnce();
+  positionQuickMenu(button, menu);
+  return { button, menu };
+}
+
+function updateEyeIconElement(force = false) {
+  try {
+    if (!eyeToggleElement) {
+      return;
+    }
+    const parts = ensureQuickMenuContent();
+    if (!parts) {
+      return;
+    }
+    const { button, menu } = parts;
+    button.classList.toggle("active", quickMenuOpen);
+    button.classList.toggle("is-muted", notificationsMutedByEye || !isActive);
+    button.classList.toggle("is-loading", !commentsLoadComplete);
+    positionQuickMenu(button, menu);
+    menu.classList.toggle("open", quickMenuOpen);
+    menu.setAttribute("aria-hidden", quickMenuOpen ? "false" : "true");
+
+    menu.querySelectorAll(".menu-panel").forEach((panel) => {
+      const panelName = panel.getAttribute("data-panel");
+      panel.classList.toggle("active", panelName === quickMenuActivePanel);
+    });
+
+    const setSwitch = (action, on) => {
+      const item = menu.querySelector(`.menu-item[data-action="${action}"]`);
+      const sw = item?.querySelector(".toggle-switch");
+      if (sw) {
+        sw.classList.toggle("on", Boolean(on));
+      }
+    };
+    setSwitch("toggle-global", isActive);
+    setSwitch("toggle-local", isTabOverlayEnabled());
+    setSwitch("toggle-markers", timelineMarkersEnabled);
+    setSwitch("toggle-heatmap", heatmapEnabled);
+    setSwitch("toggle-dot", showUpcomingDot);
+
+    const globalLabel = menu.querySelector('.menu-item[data-action="toggle-global"] > span');
+    if (globalLabel) {
+      globalLabel.textContent = `Timestamp Chatter (${isActive ? "on" : "off"})`;
+    }
+    const localLabel = menu.querySelector('.menu-item[data-action="toggle-local"] > span');
+    if (localLabel) {
+      localLabel.textContent = `This Tab (${isTabOverlayEnabled() ? "on" : "off"})`;
+    }
+
+    const currentSkinLabel = menu.querySelector(".js-current-skin");
+    if (currentSkinLabel) {
+      const currentSkinConfig =
+        rarityShared && raritySkinCatalog
+          ? rarityShared.getSkinById(raritySkinCatalog, raritySkin)
+          : null;
+      currentSkinLabel.textContent = `${currentSkinConfig?.name || raritySkin}`;
+    }
+
+    const statusRow = menu.querySelector('[data-role="status"]');
+    const statusText = menu.querySelector(".js-status-text");
+    if (statusRow && statusText) {
+      const hasStatus = Boolean(quickMenuStatusText);
+      statusRow.hidden = !hasStatus;
+      statusText.textContent = quickMenuStatusText || "";
+    }
+
+    const loadStatusText = menu.querySelector(".js-load-status-text");
+    if (loadStatusText) {
+      loadStatusText.textContent = getQuickMenuLoadStatusText();
+    }
+
+    const skinList = menu.querySelector(".js-skin-list");
+    if (skinList) {
+      const desiredEntries = getQuickMenuSkinEntries();
+      const nextSignature = desiredEntries.map((entry) => `${entry.id}:${entry.name}`).join("|");
+      if (skinList.dataset.signature !== nextSignature || force) {
+        skinList.dataset.signature = nextSignature;
+        skinList.innerHTML = "";
+        desiredEntries.forEach((entry) => {
+          const row = document.createElement("div");
+          row.className = "menu-item";
+          row.setAttribute("data-action", "select-skin");
+          row.setAttribute("data-skin-id", entry.id);
+          const name = document.createElement("span");
+          name.textContent = entry.name;
+          const value = document.createElement("span");
+          value.className = "selected-value";
+          value.textContent = entry.id === raritySkin ? "Selected" : "";
+          row.append(name, value);
+          if (entry.id === raritySkin) {
+            row.classList.add("is-selected");
+          }
+          skinList.appendChild(row);
+        });
+      } else {
+        skinList.querySelectorAll('.menu-item[data-action="select-skin"]').forEach((row) => {
+          const isSelected = row.getAttribute("data-skin-id") === raritySkin;
+          row.classList.toggle("is-selected", isSelected);
+          const value = row.querySelector(".selected-value");
+          if (value) {
+            value.textContent = isSelected ? "Selected" : "";
+          }
+        });
+      }
+    }
+  } catch (error) {
+    try {
+      if (eyeToggleElement) {
+        eyeToggleElement.classList.remove("muted");
+      }
+    } catch (_e) {}
+    console.error("[Timestamp Chatter] quick menu render failed", error);
+  }
 }
 
 function clamp(value, min, max) {
@@ -1069,16 +1525,15 @@ function isVisibleControlContainer(element) {
 function getPlayerRightControls() {
   const host = getOverlayHost();
   if (host) {
-    const hostControls =
-      host.querySelector(".ytp-left-controls") ||
-      host.querySelector(".ytp-right-controls");
+    const hostControls = host.querySelector(".ytp-right-controls");
     if (hostControls) {
       return hostControls;
     }
   }
   const selectors = [
-    ".ytp-left-controls",
     ".ytp-right-controls",
+    ".ytp-right-controls-left",
+    ".ytp-right-controls-right",
     ".player-controls-top",
     ".vjs-control-bar",
     ".shaka-bottom-controls",
@@ -1108,10 +1563,20 @@ function resolveEyeMountTarget(controls) {
   if (!controls) {
     return null;
   }
+  const rightInnerLeft = controls.querySelector(":scope > .ytp-right-controls-left");
+  if (rightInnerLeft) {
+    return rightInnerLeft;
+  }
+  const rightInnerRight = controls.querySelector(":scope > .ytp-right-controls-right");
+  if (rightInnerRight) {
+    return rightInnerRight;
+  }
   const nativeButton =
+    controls.querySelector(".ytp-settings-button") ||
+    controls.querySelector(".ytp-subtitles-button") ||
+    controls.querySelector(".ytp-autonav-toggle-button") ||
     controls.querySelector(".ytp-play-button") ||
-    controls.querySelector(".ytp-mute-button") ||
-    controls.querySelector(".ytp-subtitles-button");
+    controls.querySelector(".ytp-mute-button");
   if (nativeButton?.parentElement && controls.contains(nativeButton.parentElement)) {
     return nativeButton.parentElement;
   }
@@ -1142,11 +1607,27 @@ function resolveEyeInsertAnchor(controls, mountTarget) {
   if (!controls || !mountTarget) {
     return null;
   }
-  const preferred =
-    controls.querySelector(".ytp-mute-button") ||
-    controls.querySelector(".ytp-play-button");
-  if (preferred?.parentElement === mountTarget) {
-    return preferred.nextSibling;
+  const autoplayButtonInMountTarget =
+    mountTarget.querySelector(':scope > .ytp-autonav-toggle') ||
+    mountTarget.querySelector(':scope > .ytp-autonav-toggle-button') ||
+    mountTarget.querySelector(':scope > button[data-tooltip-target-id="ytp-autonav-toggle-button"]');
+  if (autoplayButtonInMountTarget) {
+    return autoplayButtonInMountTarget;
+  }
+  const autoplayButton =
+    controls.querySelector(".ytp-autonav-toggle") ||
+    controls.querySelector(".ytp-autonav-toggle-button") ||
+    controls.querySelector('button[data-tooltip-target-id="ytp-autonav-toggle-button"]');
+  if (autoplayButton?.parentElement === mountTarget) {
+    return autoplayButton;
+  }
+  const settingsButton = controls.querySelector(".ytp-settings-button");
+  if (settingsButton?.parentElement === mountTarget) {
+    return settingsButton;
+  }
+  const subtitlesButton = controls.querySelector(".ytp-subtitles-button");
+  if (subtitlesButton?.parentElement === mountTarget) {
+    return subtitlesButton;
   }
   return null;
 }
@@ -1175,13 +1656,28 @@ function ensureEyeToggle() {
     eyeToggleElement.classList.toggle("ytp-button", Boolean(controls));
     eyeToggleElement.classList.toggle("floating", !controls);
     eyeToggleElement.classList.toggle("in-controls-strip", Boolean(controls));
+    ensureQuickMenuContent();
     return eyeToggleElement;
   }
   const existing =
     mountTarget.querySelector(".overlay-eye-toggle") ||
     document.querySelector(".overlay-eye-toggle");
   if (existing) {
-    eyeToggleElement = existing;
+    if (existing.tagName === "BUTTON") {
+      const replacement = document.createElement("div");
+      replacement.className = "overlay-eye-toggle";
+      try {
+        existing.replaceWith(replacement);
+      } catch (_error) {
+        if (existing.parentElement) {
+          existing.parentElement.insertBefore(replacement, existing);
+          existing.remove();
+        }
+      }
+      eyeToggleElement = replacement;
+    } else {
+      eyeToggleElement = existing;
+    }
     eyeToggleElement.classList.add("overlay-eye-toggle");
     eyeToggleElement.classList.toggle("ytp-button", Boolean(controls));
     eyeToggleElement.classList.toggle("floating", !controls);
@@ -1190,45 +1686,18 @@ function ensureEyeToggle() {
       const anchor = resolveEyeInsertAnchor(controls, mountTarget);
       safeInsertBefore(mountTarget, eyeToggleElement, anchor || null);
     }
+    ensureQuickMenuContent();
     return eyeToggleElement;
   }
 
-  eyeToggleElement = document.createElement("button");
+  eyeToggleElement = document.createElement("div");
   eyeToggleElement.className = "overlay-eye-toggle";
   eyeToggleElement.classList.toggle("ytp-button", Boolean(controls));
   eyeToggleElement.classList.toggle("floating", !controls);
   eyeToggleElement.classList.toggle("in-controls-strip", Boolean(controls));
-  eyeToggleElement.type = "button";
-  eyeToggleElement.setAttribute("aria-label", "Disable timestamp notifications");
-  eyeToggleElement.title = "Disable timestamp notifications";
   eyeToggleElement.classList.toggle("muted", notificationsMutedByEye);
+  ensureQuickMenuContent();
   updateEyeIconElement(true);
-  eyeToggleElement.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    notificationsMutedByEye = !notificationsMutedByEye;
-    eyeToggleElement.classList.toggle("muted", notificationsMutedByEye);
-    updateEyeIconElement(true);
-    eyeToggleElement.setAttribute(
-      "aria-label",
-      notificationsMutedByEye ? "Enable timestamp notifications" : "Disable timestamp notifications"
-    );
-    eyeToggleElement.title = notificationsMutedByEye
-      ? "Enable timestamp notifications"
-      : "Disable timestamp notifications";
-    if (notificationsMutedByEye) {
-      hideOverlay();
-      setUpcomingDotVisible(false);
-      scheduleRenderTimeMarkers();
-      updateEyeToggleVisibility();
-      return;
-    }
-    scheduleRenderTimeMarkers();
-    const video = getVideo();
-    if (video) {
-      scheduleReconcile(video.currentTime);
-    }
-  });
   const anchor = resolveEyeInsertAnchor(controls, mountTarget);
   safeInsertBefore(mountTarget, eyeToggleElement, anchor || null);
   return eyeToggleElement;
@@ -2183,6 +2652,7 @@ async function getOverlaySettings() {
       "priorityLikesWeight",
       "topLikedThresholdPercent",
       "popularityModeEnabled",
+      "timelineMarkersEnabled",
       "heatmapEnabled",
       "heatmapIntensity",
       "routingEnabled",
@@ -2294,6 +2764,7 @@ async function getOverlaySettings() {
   popularityModeEnabled = Boolean(
     values?.popularityModeEnabled ?? DEFAULT_POPULARITY_MODE_ENABLED
   );
+  timelineMarkersEnabled = Boolean(values?.timelineMarkersEnabled ?? true);
   heatmapEnabled = Boolean(values?.heatmapEnabled ?? DEFAULT_HEATMAP_ENABLED);
   heatmapIntensity = clamp(
     Number(values?.heatmapIntensity ?? DEFAULT_HEATMAP_INTENSITY),
@@ -2392,7 +2863,7 @@ async function main() {
   if (videoId) {
     createInterface();
     scheduleRenderTimeMarkers();
-    if (monitoringInitialized === false) {
+    if (isOverlayRuntimeEnabled() && monitoringInitialized === false) {
       startMonitoring();
     }
     scheduleAutoSkinDetect(videoId, AUTO_SKIN_DETECT_DELAY_MS);
@@ -2445,12 +2916,18 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0) {
   if (!videoId) {
     return;
   }
+  if (!isOverlayRuntimeEnabled()) {
+    return;
+  }
   if (commentsRequestRetryTimerId !== null) {
     clearTimeout(commentsRequestRetryTimerId);
   }
   commentsRequestRetryTimerId = setTimeout(async () => {
     commentsRequestRetryTimerId = null;
     if (currentVideoId !== videoId || getVideoId() !== videoId) {
+      return;
+    }
+    if (!isOverlayRuntimeEnabled()) {
       return;
     }
     try {
@@ -2669,7 +3146,7 @@ function renderHeatmapWave(bar, videoDuration) {
   let waveCreated = false;
 
   if (
-    notificationsMutedByEye ||
+    !isOverlayRuntimeEnabled() ||
     !commentsLoadComplete ||
     !heatmapEnabled ||
     !Number.isFinite(videoDuration) ||
@@ -2784,7 +3261,7 @@ function renderTimeMarkers() {
     return;
   }
   bar.innerHTML = "";
-  if (notificationsMutedByEye) {
+  if (!isOverlayRuntimeEnabled()) {
     hideMarkerPreview();
     return;
   }
@@ -2802,6 +3279,9 @@ function renderTimeMarkers() {
   }
 
   const entries = [...groupedByTime.entries()].sort((a, b) => a[0] - b[0]);
+  if (!timelineMarkersEnabled) {
+    return;
+  }
   entries.forEach(([time, groupedComments]) => {
     if (time > video.duration) {
       return;
@@ -2876,14 +3356,14 @@ function startMonitoring() {
   detachVideoMonitoring();
 
   const onTimeUpdate = () => {
-    if (isAdPlaying()) {
+    if (isAdPlaying() || !isOverlayRuntimeEnabled()) {
       return;
     }
     scheduleReconcile(video.currentTime);
   };
 
   const onSeeking = () => {
-    if (isAdPlaying()) {
+    if (isAdPlaying() || !isOverlayRuntimeEnabled()) {
       return;
     }
     scheduleReconcile(video.currentTime);
@@ -2891,21 +3371,21 @@ function startMonitoring() {
   };
 
   const onSeeked = () => {
-    if (isAdPlaying()) {
+    if (isAdPlaying() || !isOverlayRuntimeEnabled()) {
       return;
     }
     scheduleReconcile(video.currentTime);
   };
 
   const onPlay = () => {
-    if (isAdPlaying()) {
+    if (isAdPlaying() || !isOverlayRuntimeEnabled()) {
       return;
     }
     scheduleReconcile(video.currentTime);
   };
 
   const onRateChange = () => {
-    if (isAdPlaying()) {
+    if (isAdPlaying() || !isOverlayRuntimeEnabled()) {
       return;
     }
     scheduleReconcile(video.currentTime);
@@ -2967,7 +3447,7 @@ function isAdPlaying() {
 }
 
 function reconcileVisibleComments(currentTime) {
-  if (!isActive || notificationsMutedByEye || !overlayElement) {
+  if (!isOverlayRuntimeEnabled() || !overlayElement) {
     setUpcomingDotVisible(false);
     return;
   }
@@ -3045,7 +3525,7 @@ function reconcileVisibleComments(currentTime) {
 }
 
 function showOverlay(comment, accentDelayMs = 0) {
-  if (!overlayElement || !isActive) {
+  if (!overlayElement || !isOverlayRuntimeEnabled()) {
     return;
   }
   if (isCommentTierHidden(comment)) {
@@ -3249,6 +3729,8 @@ function resetVariables() {
   currentVideoId = null;
   comments = [];
   commentsLoadComplete = false;
+  commentsLoadPagesFetched = null;
+  commentsLoadPagesTarget = null;
   cancelCardDrag();
   suppressCardClickUntil = 0;
   suppressGlobalClickUntil = 0;
@@ -3264,7 +3746,18 @@ function resetVariables() {
     clearTimeout(eyeVisualTransitionTimerId);
     eyeVisualTransitionTimerId = null;
   }
+  if (quickMenuStatusTimerId !== null) {
+    clearTimeout(quickMenuStatusTimerId);
+    quickMenuStatusTimerId = null;
+  }
+  quickMenuOpen = false;
+  quickMenuActivePanel = "main";
+  quickMenuStatusText = "";
   eyeVisualState = EYE_STATE_LOADING;
+  if (quickMenuMenuElement && quickMenuMenuElement.parentElement) {
+    quickMenuMenuElement.remove();
+  }
+  quickMenuMenuElement = null;
   if (eyeToggleElement && eyeToggleElement.parentElement) {
     eyeToggleElement.remove();
   }
@@ -3287,6 +3780,7 @@ function resetVariables() {
   nonPopularityPrimaryThreshold = 0;
   nonPopularityEliteThreshold = Number.POSITIVE_INFINITY;
   showRarityLabelInNotifications = DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS;
+  timelineMarkersEnabled = true;
   raritySkin = DEFAULT_RARITY_SKIN;
   rarityLogicMode = DEFAULT_RARITY_LOGIC_MODE;
   rarityGeometricRatio = DEFAULT_RARITY_GEOMETRIC_RATIO;
@@ -3331,13 +3825,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "isActive") {
     isActive = message.status;
-    if (!isActive) {
-      hideOverlay();
+    notificationsMutedByEye = !isActive;
+    if (!isOverlayRuntimeEnabled()) {
+      pauseTimestampRuntime();
     } else {
-      const video = getVideo();
-      if (video) {
-        scheduleReconcile(video.currentTime);
-      }
+      resumeTimestampRuntime({ runScan: true });
     }
     updateEyeToggleVisibility();
     return;
@@ -3413,6 +3905,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
     popularityModeEnabled = Boolean(
       message.popularityModeEnabled ?? popularityModeEnabled
+    );
+    timelineMarkersEnabled = Boolean(
+      message.timelineMarkersEnabled ?? timelineMarkersEnabled
     );
     heatmapEnabled = Boolean(message.heatmapEnabled ?? heatmapEnabled);
     heatmapIntensity = clamp(
@@ -3499,6 +3994,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       previousPopularityModeEnabled !== popularityModeEnabled ||
       previousHiddenRarityState !==
         JSON.stringify(normalizeHiddenRarityTiersBySkin(hiddenRarityTiersBySkin));
+    if (!isOverlayRuntimeEnabled()) {
+      pauseTimestampRuntime();
+      updateEyeToggleVisibility();
+      return;
+    }
     if (video && !isAdPlaying() && rarityBehaviorChanged) {
       hideOverlay();
       scheduleReconcile(video.currentTime);
@@ -3562,6 +4062,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "comments_replace") {
     comments = message.comments || [];
     commentsLoadComplete = message.complete === undefined ? true : Boolean(message.complete);
+    if (message.progress && typeof message.progress === "object") {
+      commentsLoadPagesFetched = Number.isFinite(Number(message.progress.pagesFetched))
+        ? Number(message.progress.pagesFetched)
+        : commentsLoadPagesFetched;
+      commentsLoadPagesTarget = Number.isFinite(Number(message.progress.pagesTarget))
+        ? Number(message.progress.pagesTarget)
+        : null;
+    }
     comments.sort((a, b) => {
       if (a.time !== b.time) {
         return a.time - b.time;
@@ -3572,11 +4080,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     hideOverlay();
     scheduleRenderTimeMarkers();
     updateEyeToggleVisibility();
-    if (monitoringInitialized === false) {
+    if (isOverlayRuntimeEnabled() && monitoringInitialized === false) {
       startMonitoring();
     }
     const video = getVideo();
-    if (video && !isAdPlaying()) {
+    if (video && !isAdPlaying() && isOverlayRuntimeEnabled()) {
       scheduleReconcile(video.currentTime);
     }
     return;
@@ -3587,6 +4095,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.complete !== undefined) {
       commentsLoadComplete = Boolean(message.complete);
     }
+    if (message.progress && typeof message.progress === "object") {
+      if (Number.isFinite(Number(message.progress.pagesFetched))) {
+        commentsLoadPagesFetched = Number(message.progress.pagesFetched);
+      }
+      commentsLoadPagesTarget = Number.isFinite(Number(message.progress.pagesTarget))
+        ? Number(message.progress.pagesTarget)
+        : commentsLoadPagesTarget;
+    }
     comments.sort((a, b) => {
       if (a.time !== b.time) {
         return a.time - b.time;
@@ -3596,11 +4112,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     recomputeLikeTierThresholds();
     scheduleRenderTimeMarkers();
     updateEyeToggleVisibility();
-    if (monitoringInitialized === false) {
+    if (isOverlayRuntimeEnabled() && monitoringInitialized === false) {
       startMonitoring();
     }
     const video = getVideo();
-    if (video && !isAdPlaying()) {
+    if (video && !isAdPlaying() && isOverlayRuntimeEnabled()) {
       scheduleReconcile(video.currentTime);
     }
   }
