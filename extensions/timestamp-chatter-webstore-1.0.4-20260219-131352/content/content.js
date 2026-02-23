@@ -1533,16 +1533,103 @@ function applyTierCardVisualStyle(card, tierConfig, tierRank = 0) {
   card.classList.remove("effect-glow", "effect-pulse", "effect-rainbow-cycle", "effect-sheen");
 }
 
+function parseHexColorToRgb(colorValue) {
+  const raw = String(colorValue || "").trim();
+  if (!raw) {
+    return null;
+  }
+  let hex = raw;
+  if (/^#[0-9a-fA-F]{3}$/.test(hex)) {
+    hex = `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
+  }
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    return null;
+  }
+  const r = Number.parseInt(hex.slice(1, 3), 16);
+  const g = Number.parseInt(hex.slice(3, 5), 16);
+  const b = Number.parseInt(hex.slice(5, 7), 16);
+  if (![r, g, b].every(Number.isFinite)) {
+    return null;
+  }
+  return { r, g, b };
+}
+
+function relativeLuminanceFromHex(colorValue) {
+  const rgb = parseHexColorToRgb(colorValue);
+  if (!rgb) {
+    return null;
+  }
+  const linearize = (channel) => {
+    const c = channel / 255;
+    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const r = linearize(rgb.r);
+  const g = linearize(rgb.g);
+  const b = linearize(rgb.b);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function getLuminousTierMarkerDotColor(tierConfig) {
+  const bodyColor = String(tierConfig?.bodyColor || "").trim();
+  const borderColor = String(tierConfig?.borderColor || "").trim();
+  const bodyLum = relativeLuminanceFromHex(bodyColor);
+  const borderLum = relativeLuminanceFromHex(borderColor);
+
+  if (bodyLum !== null && borderLum !== null) {
+    return bodyLum >= borderLum ? bodyColor : borderColor;
+  }
+  if (borderLum !== null) {
+    return borderColor;
+  }
+  if (bodyLum !== null) {
+    return bodyColor;
+  }
+  return String(tierConfig?.markerColor || borderColor || bodyColor || "#ffffff");
+}
+
+function getTierMarkerMetrics(tierConfig, tierRank = 0) {
+  const safeRank = Math.max(0, Math.floor(Number(tierRank) || 0));
+  const fallbackWidth = 5 + Math.min(18, safeRank) * 2;
+  const fallbackHeightPct = 118 + Math.min(18, safeRank) * 18;
+  const fallbackOffsetTopPct = -(9 + Math.min(18, safeRank) * 8);
+
+  const markerWidthPx = clamp(
+    Number(tierConfig?.markerWidthPx ?? fallbackWidth),
+    3,
+    40
+  );
+  const markerHeightPct = clamp(
+    Number(tierConfig?.markerHeightPct ?? fallbackHeightPct),
+    100,
+    400
+  );
+  const markerOffsetTopPct = clamp(
+    Number(tierConfig?.markerOffsetTopPct ?? fallbackOffsetTopPct),
+    -200,
+    40
+  );
+
+  return {
+    markerWidthPx,
+    markerHeightPct,
+    markerOffsetTopPct
+  };
+}
+
 function applyTierMarkerVisualStyle(marker, tierConfig, tierRank = 0) {
   if (!marker || !tierConfig) {
     return;
   }
   // Revert to legacy CSS-driven marker visuals.
-  marker.style.width = "";
-  marker.style.minWidth = "";
-  marker.style.height = "";
-  marker.style.top = "";
-  marker.style.background = "";
+  const { markerWidthPx, markerHeightPct, markerOffsetTopPct } = getTierMarkerMetrics(
+    tierConfig,
+    tierRank
+  );
+  marker.style.width = `${markerWidthPx}px`;
+  marker.style.minWidth = `${markerWidthPx}px`;
+  marker.style.height = `${markerHeightPct}%`;
+  marker.style.top = `${markerOffsetTopPct}%`;
+  marker.style.background = getLuminousTierMarkerDotColor(tierConfig);
   marker.style.borderRadius = "";
   marker.classList.remove("effect-glow", "effect-pulse", "effect-rainbow-cycle", "effect-sheen");
 }
@@ -2328,18 +2415,7 @@ function onCardDragEnd(event) {
   const suppressUntil = Date.now() + CARD_DRAG_CLICK_SUPPRESS_MS;
   suppressCardClickUntil = suppressUntil;
   suppressGlobalClickUntil = suppressUntil;
-  try {
-    const maybePromise = chrome.storage.sync.set({
-      freePositionEnabled,
-      freePositionX,
-      freePositionY
-    });
-    if (maybePromise && typeof maybePromise.catch === "function") {
-      maybePromise.catch(() => {});
-    }
-  } catch (error) {
-    // Ignore transient context errors while navigating.
-  }
+  // Free-position persistence is disabled while card dragging is disabled.
 }
 
 function startCardDrag(event, card, initialCorner) {
@@ -2718,10 +2794,7 @@ async function getOverlaySettings() {
       "hiddenRarityTiersBySkin",
       "hiddenRarityTiersBySkinId",
       "commentScanStartDelaySec",
-      "presetProfile",
-      "freePositionEnabled",
-      "freePositionX",
-      "freePositionY"
+      "presetProfile"
     ]),
     chrome.storage.local.get([
       LOCAL_RARITY_CATALOG_KEY,
@@ -2892,19 +2965,6 @@ async function getOverlaySettings() {
     Number(values?.commentScanStartDelaySec ?? DEFAULT_COMMENT_SCAN_START_DELAY_SEC),
     MIN_COMMENT_SCAN_START_DELAY_SEC,
     MAX_COMMENT_SCAN_START_DELAY_SEC
-  );
-  freePositionEnabled = Boolean(
-    values?.freePositionEnabled ?? DEFAULT_FREE_POSITION_ENABLED
-  );
-  freePositionX = clamp(
-    Number(values?.freePositionX ?? DEFAULT_FREE_POSITION_X),
-    0,
-    1
-  );
-  freePositionY = clamp(
-    Number(values?.freePositionY ?? DEFAULT_FREE_POSITION_Y),
-    0,
-    1
   );
   if (!CARD_DRAG_ENABLED) {
     freePositionEnabled = false;
@@ -3920,18 +3980,6 @@ function changePosition(newPosition) {
   freePositionEnabled = false;
   freePositionX = DEFAULT_FREE_POSITION_X;
   freePositionY = DEFAULT_FREE_POSITION_Y;
-  try {
-    const maybePromise = chrome.storage.sync.set({
-      freePositionEnabled: false,
-      freePositionX: DEFAULT_FREE_POSITION_X,
-      freePositionY: DEFAULT_FREE_POSITION_Y
-    });
-    if (maybePromise && typeof maybePromise.catch === "function") {
-      maybePromise.catch(() => {});
-    }
-  } catch (error) {
-    // Ignore transient context errors while navigating.
-  }
   updateLaneVisibility();
   updateEyeToggleVisibility();
   setUpcomingDotVisible(false);

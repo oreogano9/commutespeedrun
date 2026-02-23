@@ -14,11 +14,89 @@
   33% { transform: translate3d(8px, -6px, 0) scale(1.06); }
   66% { transform: translate3d(-6px, 7px, 0) scale(0.97); }
 }
+@keyframes tcPulseGlow { 0%,100%{opacity:.2;transform:scale(1)}50%{opacity:.65;transform:scale(1.05)} }
+@keyframes tcScrollX { from { transform: translateX(-20%);} to { transform: translateX(20%);} }
+@keyframes tcScrollY { from { transform: translateY(-20%);} to { transform: translateY(20%);} }
+@keyframes tcHueSpin { from { filter: hue-rotate(0deg);} to { filter: hue-rotate(360deg);} }
+@keyframes tcRotateSlow { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
+@keyframes tcFlicker { 0%,19%,21%,23%,80%,100%{opacity:.55}20%,22%,24%{opacity:.15} }
+@keyframes tcRipple { 0%{transform:scale(.2);opacity:.55}100%{transform:scale(1.6);opacity:0} }
+@keyframes tcSweep { 0%{transform:translateX(-120%) skewX(-20deg)}100%{transform:translateX(180%) skewX(-20deg)} }
+@keyframes tcNoise { 0%,100%{transform:translate(0,0)}25%{transform:translate(1px,-1px)}50%{transform:translate(-1px,1px)}75%{transform:translate(1px,1px)} }
+@keyframes tcSway { 0%,100%{transform:translateX(0) rotate(0deg)}50%{transform:translateX(4px) rotate(1.2deg)} }
+@keyframes tcDriftDiag { 0%{transform:translate(-6%,6%)}100%{transform:translate(8%,-8%)} }
+@keyframes tcSoftBreath { 0%,100%{opacity:.18;transform:scale(1)}50%{opacity:.34;transform:scale(1.03)} }
+@keyframes tcSpark { 0%,100%{opacity:.15}50%{opacity:.55} }
+@keyframes eff-cycle {
+  0% { background-color: #FF004D; }
+  12.5% { background-color: #FF7A00; }
+  25% { background-color: #FFE600; }
+  37.5% { background-color: #2BFF00; }
+  50% { background-color: #00E5FF; }
+  62.5% { background-color: #2D5BFF; }
+  75% { background-color: #B000FF; }
+  87.5% { background-color: #FF4FD8; }
+  100% { background-color: #FF004D; }
+}
 
 .tc-anim-twinkle { animation: tcTwinkle 2.5s infinite ease-in-out; }
 .tc-notif-aurora { animation: tcAuroraFlow 12s infinite ease-in-out; }
 .tc-notif-galaxy { animation: tcGalaxyRotate 90s linear infinite; }
 .tc-notif-shader-blob { animation: tcShaderFloat 12s ease-in-out infinite; will-change: transform; }
+
+.tc-css-effect { isolation: isolate; opacity: .9; }
+.tc-css-effect-layer { position:absolute; inset:0; border-radius:inherit; display:block; }
+.tc-css-effect-layer-a { opacity:.35; }
+.tc-css-effect-layer-b { opacity:.28; }
+.tc-css-effect-layer-c { opacity:.22; }
+
+.tc-css-effect-neon-pulse .tc-css-effect-layer-a { box-shadow: inset 0 0 24px color-mix(in srgb, var(--tc-effect-color) 70%, transparent), 0 0 18px color-mix(in srgb, var(--tc-effect-color) 60%, transparent); animation: tcPulseGlow 2s ease-in-out infinite; }
+.tc-css-effect-neon-pulse .tc-css-effect-layer-b { border: 1px solid color-mix(in srgb, var(--tc-effect-color) 65%, transparent); animation: tcFlicker 2.8s linear infinite; }
+.tc-css-effect-scanlines .tc-css-effect-layer-a { background: repeating-linear-gradient(180deg, color-mix(in srgb, var(--tc-effect-color) 24%, transparent) 0 1px, transparent 1px 4px); opacity:.22; }
+.tc-css-effect-scanlines .tc-css-effect-layer-b { background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--tc-effect-color) 26%, transparent), transparent); animation: tcScrollX 3.2s linear infinite alternate; }
+.tc-css-effect-frost .tc-css-effect-layer-a { background: linear-gradient(135deg, color-mix(in srgb, #d7f2ff 28%, transparent), transparent 35%, color-mix(in srgb, #9be7ff 18%, transparent)); }
+.tc-css-effect-frost .tc-css-effect-layer-b { background: repeating-linear-gradient(45deg, color-mix(in srgb, #fff 16%, transparent) 0 2px, transparent 2px 8px); opacity:.14; }
+.tc-css-effect-frost .tc-css-effect-layer-c { box-shadow: inset 0 0 22px color-mix(in srgb, #b8ecff 20%, transparent); }
+.tc-css-effect-plasma .tc-css-effect-layer-a { background: radial-gradient(circle at 25% 35%, color-mix(in srgb, #ff00ff 40%, transparent), transparent 55%), radial-gradient(circle at 75% 65%, color-mix(in srgb, #00e5ff 40%, transparent), transparent 60%), radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--tc-effect-color) 30%, transparent), transparent 70%); filter: blur(8px); animation: tcHueSpin 10s linear infinite; }
+.tc-css-effect-plasma .tc-css-effect-layer-b { background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 12%, transparent), transparent); animation: tcScrollX 5s ease-in-out infinite alternate; }
+.tc-css-effect-rainbow .tc-css-effect-layer-a { animation: eff-cycle 4s linear infinite; opacity:.22; }
+.tc-css-effect-rainbow .tc-css-effect-layer-b { background: linear-gradient(115deg, transparent 15%, rgba(255,255,255,.22) 50%, transparent 85%); animation: tcScrollX 2.8s ease-in-out infinite alternate; opacity:.2; }
+.tc-css-effect-rainbow .tc-css-effect-layer-c { box-shadow: inset 0 0 18px rgba(255,255,255,.10), 0 0 14px rgba(255,255,255,.08); animation: tcPulseGlow 2.4s ease-in-out infinite; opacity:.16; }
+.tc-css-effect-prism-sheen .tc-css-effect-layer-a { background: linear-gradient(120deg, color-mix(in srgb, #ff3d81 28%, transparent), color-mix(in srgb, #ffd166 22%, transparent), color-mix(in srgb, #2dd4ff 24%, transparent), color-mix(in srgb, #7c3aed 24%, transparent)); background-size: 220% 220%; animation: tcScrollX 6s ease-in-out infinite alternate, tcHueSpin 12s linear infinite; }
+.tc-css-effect-prism-sheen .tc-css-effect-layer-b { box-shadow: inset 0 0 18px color-mix(in srgb, #fff 8%, transparent); }
+.tc-css-effect-holo-grid .tc-css-effect-layer-a { background: repeating-linear-gradient(90deg, color-mix(in srgb, #8df 16%, transparent) 0 1px, transparent 1px 10px), repeating-linear-gradient(180deg, color-mix(in srgb, #8df 14%, transparent) 0 1px, transparent 1px 8px); opacity:.2; }
+.tc-css-effect-holo-grid .tc-css-effect-layer-b { background: linear-gradient(130deg, transparent, color-mix(in srgb, var(--tc-effect-color) 26%, transparent), transparent); animation: tcScrollX 4.8s ease-in-out infinite alternate; }
+.tc-css-effect-ember-glow .tc-css-effect-layer-a { background: radial-gradient(circle at 20% 80%, color-mix(in srgb, #ff8a00 52%, transparent) 0 6%, transparent 11%), radial-gradient(circle at 72% 66%, color-mix(in srgb, #ff4800 50%, transparent) 0 5%, transparent 10%), radial-gradient(circle at 42% 22%, color-mix(in srgb, #ffd166 40%, transparent) 0 4%, transparent 9%); animation: tcScrollY 6s ease-in-out infinite alternate; }
+.tc-css-effect-ember-glow .tc-css-effect-layer-b { box-shadow: inset 0 -16px 24px color-mix(in srgb, #ff4d00 18%, transparent); }
+.tc-css-effect-comet-trail .tc-css-effect-layer-a { background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 70%, transparent), color-mix(in srgb, var(--tc-effect-color) 45%, transparent), transparent); width:45%; filter: blur(2px); animation: tcSweep 2.5s linear infinite; }
+.tc-css-effect-comet-trail .tc-css-effect-layer-b { box-shadow: inset 0 0 18px color-mix(in srgb, var(--tc-effect-color) 14%, transparent); }
+.tc-css-effect-velvet-bloom .tc-css-effect-layer-a { box-shadow: inset 0 0 34px color-mix(in srgb, #fff 10%, transparent), 0 0 26px color-mix(in srgb, var(--tc-effect-color) 20%, transparent); animation: tcPulseGlow 3s ease-in-out infinite; }
+.tc-css-effect-velvet-bloom .tc-css-effect-layer-b { background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--tc-effect-color) 10%, transparent), transparent 70%); }
+.tc-css-effect-crystal-shift .tc-css-effect-layer-a { background: conic-gradient(from 90deg at 50% 50%, color-mix(in srgb, #fff 18%, transparent), transparent 18%, color-mix(in srgb, var(--tc-effect-color) 22%, transparent) 34%, transparent 50%, color-mix(in srgb, #9cf 18%, transparent) 68%, transparent 84%, color-mix(in srgb, #fff 16%, transparent)); animation: tcRotateSlow 10s linear infinite; opacity:.22; }
+.tc-css-effect-crystal-shift .tc-css-effect-layer-b { animation: tcHueSpin 8s linear infinite; background: linear-gradient(135deg, transparent, color-mix(in srgb, #fff 8%, transparent), transparent); }
+
+/* Animal Crossing themed (10) */
+.tc-css-effect-ac-leaf-drift .tc-css-effect-layer-a { background: radial-gradient(ellipse at 18% 22%, color-mix(in srgb, #7ed6a2 28%, transparent) 0 6%, transparent 9%), radial-gradient(ellipse at 72% 66%, color-mix(in srgb, #6bbf84 24%, transparent) 0 7%, transparent 10%), radial-gradient(ellipse at 46% 42%, color-mix(in srgb, #b9e6c8 18%, transparent) 0 5%, transparent 8%); animation: tcDriftDiag 8s ease-in-out infinite alternate; }
+.tc-css-effect-ac-leaf-drift .tc-css-effect-layer-b { background: linear-gradient(140deg, transparent, color-mix(in srgb, #dff6e7 10%, transparent), transparent); }
+.tc-css-effect-ac-petal-breeze .tc-css-effect-layer-a { background: radial-gradient(circle at 18% 24%, color-mix(in srgb, #ffbfd8 30%, transparent) 0 5%, transparent 8%), radial-gradient(circle at 66% 32%, color-mix(in srgb, #ffd1e4 24%, transparent) 0 4%, transparent 7%), radial-gradient(circle at 78% 74%, color-mix(in srgb, #ff9acb 22%, transparent) 0 5%, transparent 8%); animation: tcSway 5.5s ease-in-out infinite; }
+.tc-css-effect-ac-petal-breeze .tc-css-effect-layer-b { background: linear-gradient(100deg, transparent, color-mix(in srgb, #fff 12%, transparent), transparent); animation: tcScrollX 6s ease-in-out infinite alternate; }
+.tc-css-effect-ac-bell-shimmer .tc-css-effect-layer-a { background: radial-gradient(circle at 28% 34%, color-mix(in srgb, #ffd36a 30%, transparent) 0 8%, transparent 14%), radial-gradient(circle at 64% 58%, color-mix(in srgb, #ffe7a8 22%, transparent) 0 10%, transparent 16%); animation: tcSpark 2.2s ease-in-out infinite; }
+.tc-css-effect-ac-bell-shimmer .tc-css-effect-layer-b { box-shadow: inset 0 0 18px color-mix(in srgb, #ffd36a 16%, transparent), 0 0 14px color-mix(in srgb, #ffd36a 12%, transparent); animation: tcPulseGlow 2.8s ease-in-out infinite; }
+.tc-css-effect-ac-river-ripple .tc-css-effect-layer-a { border: 1px solid color-mix(in srgb, #7fd1ff 28%, transparent); animation: tcRipple 2.4s ease-out infinite; }
+.tc-css-effect-ac-river-ripple .tc-css-effect-layer-b { border: 1px solid color-mix(in srgb, #b8ecff 20%, transparent); animation: tcRipple 2.4s ease-out infinite .8s; }
+.tc-css-effect-ac-river-ripple .tc-css-effect-layer-c { background: radial-gradient(circle at 30% 20%, color-mix(in srgb, #e6f8ff 10%, transparent), transparent 60%); }
+.tc-css-effect-ac-sunbeam .tc-css-effect-layer-a { background: linear-gradient(120deg, transparent 12%, color-mix(in srgb, #ffe8a3 20%, transparent) 28%, transparent 42%, color-mix(in srgb, #fff4c9 16%, transparent) 58%, transparent 72%); animation: tcScrollX 6s ease-in-out infinite alternate; }
+.tc-css-effect-ac-sunbeam .tc-css-effect-layer-b { box-shadow: inset 0 0 22px color-mix(in srgb, #ffd36a 12%, transparent); animation: tcSoftBreath 4s ease-in-out infinite; }
+.tc-css-effect-ac-cloud-soft .tc-css-effect-layer-a { background: radial-gradient(circle at 24% 35%, color-mix(in srgb, #fff 20%, transparent) 0 18%, transparent 30%), radial-gradient(circle at 52% 28%, color-mix(in srgb, #f6fbff 18%, transparent) 0 14%, transparent 26%), radial-gradient(circle at 72% 40%, color-mix(in srgb, #fff 17%, transparent) 0 16%, transparent 28%); filter: blur(4px); animation: tcDriftDiag 10s ease-in-out infinite alternate; }
+.tc-css-effect-ac-cloud-soft .tc-css-effect-layer-b { opacity:.12; box-shadow: inset 0 0 20px color-mix(in srgb, #fff 10%, transparent); }
+.tc-css-effect-ac-woodgrain .tc-css-effect-layer-a { background: repeating-linear-gradient(8deg, color-mix(in srgb, #c89c6d 14%, transparent) 0 2px, color-mix(in srgb, #a87444 10%, transparent) 2px 4px, transparent 4px 8px); opacity:.2; }
+.tc-css-effect-ac-woodgrain .tc-css-effect-layer-b { background: linear-gradient(180deg, color-mix(in srgb, #5b3a22 8%, transparent), transparent); }
+.tc-css-effect-ac-paper-fiber .tc-css-effect-layer-a { background: repeating-linear-gradient(35deg, color-mix(in srgb, #f7f4ee 20%, transparent) 0 1px, transparent 1px 6px), repeating-linear-gradient(-25deg, color-mix(in srgb, #e9e2d3 14%, transparent) 0 1px, transparent 1px 8px); opacity:.18; }
+.tc-css-effect-ac-paper-fiber .tc-css-effect-layer-b { box-shadow: inset 0 0 14px color-mix(in srgb, #efe6d8 10%, transparent); }
+.tc-css-effect-ac-night-cricket .tc-css-effect-layer-a { background: radial-gradient(circle at 15% 20%, color-mix(in srgb, #b5ffb6 18%, transparent) 0 2px, transparent 4px), radial-gradient(circle at 65% 35%, color-mix(in srgb, #d6ffd6 14%, transparent) 0 2px, transparent 4px), radial-gradient(circle at 75% 75%, color-mix(in srgb, #c8ffd0 16%, transparent) 0 2px, transparent 4px), radial-gradient(circle at 35% 65%, color-mix(in srgb, #e7fff1 14%, transparent) 0 2px, transparent 4px); animation: tcTwinkle 2.8s ease-in-out infinite; }
+.tc-css-effect-ac-night-cricket .tc-css-effect-layer-b { background: linear-gradient(180deg, color-mix(in srgb, #0f2340 12%, transparent), transparent); }
+.tc-css-effect-ac-museum-glow .tc-css-effect-layer-a { background: radial-gradient(circle at 50% 45%, color-mix(in srgb, #7ee6ff 16%, transparent), transparent 62%), radial-gradient(circle at 24% 68%, color-mix(in srgb, #bca7ff 12%, transparent), transparent 54%), radial-gradient(circle at 78% 28%, color-mix(in srgb, #9ce6d6 12%, transparent), transparent 50%); filter: blur(6px); animation: tcHueSpin 18s linear infinite; }
+.tc-css-effect-ac-museum-glow .tc-css-effect-layer-b { box-shadow: inset 0 0 22px color-mix(in srgb, #8fdcf3 12%, transparent), 0 0 18px color-mix(in srgb, #bca7ff 10%, transparent); animation: tcSoftBreath 4.5s ease-in-out infinite; }
 
 .overlay-comment.tc-react-hosted-card {
   background: transparent !important;

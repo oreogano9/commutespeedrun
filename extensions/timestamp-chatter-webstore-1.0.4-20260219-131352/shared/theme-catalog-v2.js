@@ -86,8 +86,10 @@
 
   function effectToRuntimeTokens(effect) {
     const key = String(effect || "none");
-    if (key === "galaxy") return ["glow", "pulse"];
-    if (key === "aurora") return ["rainbow-cycle", "glow"];
+    if (["galaxy", "comet-trail", "crystal-shift", "ac-night-cricket"].includes(key)) return ["glow", "pulse"];
+    if (["aurora", "plasma", "rainbow", "prism-sheen", "holo-grid", "ac-museum-glow"].includes(key)) return ["rainbow-cycle", "glow"];
+    if (["neon-pulse", "ember-glow", "velvet-bloom", "ac-sunbeam", "ac-bell-shimmer"].includes(key)) return ["glow"];
+    if (["scanlines", "ac-woodgrain", "ac-paper-fiber"].includes(key)) return ["sheen"];
     return ["none"];
   }
 
@@ -169,7 +171,12 @@
       borderWidth: Math.max(0, Math.min(10, Number(tier?.borderWidth ?? 2))),
       opacity: Math.max(0, Math.min(100, Number(tier?.opacity ?? 90))),
       textOpacity: Math.max(0, Math.min(100, Number(tier?.textOpacity ?? 100))),
-      effect: ["none", "galaxy", "aurora"].includes(String(tier?.effect)) ? String(tier.effect) : "none"
+      effect: [
+        "none","galaxy","aurora","shader","neon-pulse","scanlines","frost","plasma","rainbow",
+        "prism-sheen","holo-grid","ember-glow","comet-trail","velvet-bloom","crystal-shift",
+        "ac-leaf-drift","ac-petal-breeze","ac-bell-shimmer","ac-river-ripple","ac-sunbeam",
+        "ac-cloud-soft","ac-woodgrain","ac-paper-fiber","ac-night-cricket","ac-museum-glow"
+      ].includes(String(tier?.effect)) ? String(tier.effect) : "none"
     };
   }
 

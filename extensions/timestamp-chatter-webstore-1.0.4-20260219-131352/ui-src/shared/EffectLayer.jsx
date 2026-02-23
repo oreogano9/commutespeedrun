@@ -1,5 +1,11 @@
 import React, { useMemo } from 'react';
 
+const CSS_EFFECTS = new Set([
+  'neon-pulse','scanlines','frost','plasma','rainbow','prism-sheen','holo-grid','ember-glow','comet-trail',
+  'velvet-bloom','crystal-shift','ac-leaf-drift','ac-petal-breeze','ac-bell-shimmer','ac-river-ripple',
+  'ac-sunbeam','ac-cloud-soft','ac-woodgrain','ac-paper-fiber','ac-night-cricket','ac-museum-glow'
+]);
+
 export function EffectLayer({ effect, color, bodyColor }) {
   const galaxyStars = useMemo(() => {
     if (effect !== 'galaxy') return [];
@@ -30,6 +36,19 @@ export function EffectLayer({ effect, color, bodyColor }) {
   if (!effect || effect === 'none') return null;
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[inherit]">
+      {CSS_EFFECTS.has(effect) && (
+        <div
+          className={`tc-css-effect tc-css-effect-${effect} absolute inset-0 rounded-[inherit]`}
+          style={{
+            '--tc-effect-color': color,
+            '--tc-effect-body': bodyColor
+          }}
+        >
+          <span className="tc-css-effect-layer tc-css-effect-layer-a" />
+          <span className="tc-css-effect-layer tc-css-effect-layer-b" />
+          <span className="tc-css-effect-layer tc-css-effect-layer-c" />
+        </div>
+      )}
       {effect === 'galaxy' && (
         <div className="absolute inset-0">
           <div

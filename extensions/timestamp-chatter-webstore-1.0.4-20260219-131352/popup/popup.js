@@ -1,5 +1,4 @@
 let lastPosition = "";
-const IS_EDITOR_MODE = false;
 const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
 const themeCatalogV2Shared = globalThis.TimestampChatterThemeCatalogV2 || null;
 
@@ -537,7 +536,6 @@ async function getConfigs() {
     MIN_TOP_LIKED_THRESHOLD_PERCENT,
     MAX_TOP_LIKED_THRESHOLD_PERCENT
   );
-  const diamondThresholdPercent = deriveDiamondThresholdPercent(topLikedThresholdPercent);
   const popularityModeEnabled = Boolean(
     storedSync?.popularityModeEnabled ?? DEFAULT_POPULARITY_MODE_ENABLED
   );
@@ -661,7 +659,6 @@ async function getConfigs() {
     priorityScoringEnabled,
     priorityLikesWeight,
     topLikedThresholdPercent,
-    diamondThresholdPercent,
     popularityModeEnabled,
     heatmapEnabled,
     heatmapIntensity,
@@ -735,7 +732,6 @@ async function getConfigs() {
     priorityScoringEnabled,
     priorityLikesWeight,
     topLikedThresholdPercent,
-    diamondThresholdPercent,
     popularityModeEnabled,
     heatmapEnabled,
     heatmapIntensity,
@@ -989,7 +985,6 @@ async function broadcastOverlaySettings({
   priorityScoringEnabled,
   priorityLikesWeight,
   topLikedThresholdPercent,
-  diamondThresholdPercent,
   popularityModeEnabled,
   heatmapEnabled,
   heatmapIntensity,
@@ -1037,7 +1032,6 @@ async function broadcastOverlaySettings({
     priorityScoringEnabled,
     priorityLikesWeight,
     topLikedThresholdPercent,
-    diamondThresholdPercent,
     popularityModeEnabled,
     heatmapEnabled,
     heatmapIntensity,
@@ -1724,9 +1718,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   function renderRarityPreview(raritySkinId) {
-    if (IS_EDITOR_MODE) {
-      return;
-    }
     if (!rarityPreviewGrid) {
       return;
     }
@@ -2038,7 +2029,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       MAX_PRIORITY_LIKES_WEIGHT
     );
     const topLikedThresholdPercent = readTopLikedThresholdPercent();
-    const diamondThresholdPercent = deriveDiamondThresholdPercent(topLikedThresholdPercent);
     const popularityModeEnabled = Boolean(popularityModeToggle.checked);
     const rarityLogicMode = normalizeRarityLogicMode(
       String(rarityLogicSelect?.value || DEFAULT_RARITY_LOGIC_MODE)
@@ -2143,7 +2133,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       priorityScoringEnabled,
       priorityLikesWeight,
       topLikedThresholdPercent,
-      diamondThresholdPercent,
       popularityModeEnabled,
       raritySkin,
       rarityLogicMode,
@@ -2242,7 +2231,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       MAX_PRIORITY_LIKES_WEIGHT
     );
     const topLikedThresholdPercent = readTopLikedThresholdPercent();
-    const diamondThresholdPercent = deriveDiamondThresholdPercent(topLikedThresholdPercent);
     const popularityModeEnabled = Boolean(popularityModeToggle.checked);
     const rarityLogicMode = normalizeRarityLogicMode(
       String(rarityLogicSelect?.value || DEFAULT_RARITY_LOGIC_MODE)
@@ -2321,7 +2309,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       priorityScoringEnabled,
       priorityLikesWeight,
       topLikedThresholdPercent,
-      diamondThresholdPercent,
       popularityModeEnabled,
       raritySkin,
       rarityLogicMode,

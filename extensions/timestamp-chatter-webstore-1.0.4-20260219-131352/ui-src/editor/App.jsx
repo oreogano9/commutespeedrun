@@ -71,8 +71,31 @@ const EFFECTS = [
   { id: 'none', label: 'Plain', icon: <ZapOff size={14} /> },
   { id: 'galaxy', label: 'Galaxy', icon: <Orbit size={14} /> },
   { id: 'aurora', label: 'Aurora', icon: <Wind size={14} /> },
-  { id: 'shader', label: 'Shader', icon: <Sparkles size={14} /> }
+  { id: 'shader', label: 'Shader', icon: <Sparkles size={14} /> },
+  { id: 'neon-pulse', label: 'Neon Pulse', icon: <Sparkles size={14} /> },
+  { id: 'scanlines', label: 'Scanlines', icon: <Layers size={14} /> },
+  { id: 'frost', label: 'Frost', icon: <Wind size={14} /> },
+  { id: 'plasma', label: 'Plasma', icon: <Sparkles size={14} /> },
+  { id: 'rainbow', label: 'Rainbow', icon: <Palette size={14} /> },
+  { id: 'prism-sheen', label: 'Prism Sheen', icon: <Palette size={14} /> },
+  { id: 'holo-grid', label: 'Holo Grid', icon: <Layers size={14} /> },
+  { id: 'ember-glow', label: 'Ember Glow', icon: <Sparkles size={14} /> },
+  { id: 'comet-trail', label: 'Comet Trail', icon: <ChevronRight size={14} /> },
+  { id: 'velvet-bloom', label: 'Velvet Bloom', icon: <Sparkles size={14} /> },
+  { id: 'crystal-shift', label: 'Crystal Shift', icon: <Orbit size={14} /> },
+  { id: 'ac-leaf-drift', label: 'AC Leaf Drift', icon: <Wind size={14} /> },
+  { id: 'ac-petal-breeze', label: 'AC Petal Breeze', icon: <Wind size={14} /> },
+  { id: 'ac-bell-shimmer', label: 'AC Bell Shimmer', icon: <Sparkles size={14} /> },
+  { id: 'ac-river-ripple', label: 'AC River Ripple', icon: <Layout size={14} /> },
+  { id: 'ac-sunbeam', label: 'AC Sunbeam', icon: <Sparkles size={14} /> },
+  { id: 'ac-cloud-soft', label: 'AC Cloud Soft', icon: <Orbit size={14} /> },
+  { id: 'ac-woodgrain', label: 'AC Woodgrain', icon: <Layers size={14} /> },
+  { id: 'ac-paper-fiber', label: 'AC Paper Fiber', icon: <Layers size={14} /> },
+  { id: 'ac-night-cricket', label: 'AC Night Cricket', icon: <RotateCcw size={14} /> },
+  { id: 'ac-museum-glow', label: 'AC Museum Glow', icon: <Palette size={14} /> }
 ];
+
+const EFFECT_IDS = EFFECTS.map((effect) => effect.id);
 
 const SOFT_BUTTON_BASE =
   'rounded-[14px] border-0 bg-gradient-to-b from-white to-slate-100 text-slate-700 shadow-none transition-all';
@@ -178,7 +201,7 @@ function normalizeThemesForEditor(rawThemes) {
       borderWidth: Number(tier?.borderWidth ?? 2),
       opacity: Number(tier?.opacity ?? 100),
       textOpacity: Number(tier?.textOpacity ?? 100),
-      effect: ['none', 'galaxy', 'aurora', 'shader'].includes(String(tier?.effect)) ? String(tier.effect) : 'none'
+      effect: EFFECT_IDS.includes(String(tier?.effect)) ? String(tier.effect) : 'none'
     }))
   }));
 }
