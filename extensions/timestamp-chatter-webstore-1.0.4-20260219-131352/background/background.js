@@ -1,25 +1,44 @@
 import * as youtubei from "./youtubei.js";
 import "../shared/rarity-skins.js";
+import "../shared/settings-schema.js";
 
-const DEFAULT_ALLOW_LONG_MESSAGES = false;
-const DEFAULT_MAX_MESSAGE_CHARS = 300;
-const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES = true;
-const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES = true;
-const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
-const DEFAULT_COMMENT_FETCH_STARTUP_PAGES = 1;
-const DEFAULT_COMMENT_FETCH_MAX_PAGES = 8;
-const DEFAULT_COMMENT_FETCH_AGGRESSIVE = false;
-const DEFAULT_COMMENT_FETCH_ADAPTIVE = true;
-const DEFAULT_LIVE_PAGE_MARKER_UPDATES = true;
-const MIN_MAX_MESSAGE_CHARS = 1;
-const MAX_MAX_MESSAGE_CHARS = 5000;
+const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
+
+const DEFAULT_ALLOW_LONG_MESSAGES =
+  settingsSchema?.defaults?.allowLongMessages ?? false;
+const DEFAULT_MAX_MESSAGE_CHARS =
+  settingsSchema?.defaults?.maxMessageChars ?? 300;
+const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES =
+  settingsSchema?.defaults?.hideTimestampOnlyMessages ?? true;
+const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES =
+  settingsSchema?.defaults?.hideMultiTimestampMessages ?? true;
+const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED =
+  settingsSchema?.defaults?.experimentalGameSkinAutoEnabled ?? true;
+const DEFAULT_COMMENT_FETCH_STARTUP_PAGES =
+  settingsSchema?.defaults?.commentFetchStartupPages ?? 1;
+const DEFAULT_COMMENT_FETCH_MAX_PAGES =
+  settingsSchema?.defaults?.commentFetchMaxPages ?? 8;
+const DEFAULT_COMMENT_FETCH_AGGRESSIVE =
+  settingsSchema?.defaults?.commentFetchAggressive ?? false;
+const DEFAULT_COMMENT_FETCH_ADAPTIVE =
+  settingsSchema?.defaults?.commentFetchAdaptive ?? true;
+const DEFAULT_LIVE_PAGE_MARKER_UPDATES =
+  settingsSchema?.defaults?.livePageMarkerUpdates ?? true;
+const MIN_MAX_MESSAGE_CHARS =
+  settingsSchema?.limits?.maxMessageChars?.min ?? 1;
+const MAX_MAX_MESSAGE_CHARS =
+  settingsSchema?.limits?.maxMessageChars?.max ?? 5000;
 const COMMENTS_CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_RUNTIME_COMMENTS = 6000;
 const MAX_RUNTIME_COMMENTS_PER_SECOND = 3;
-const MIN_COMMENT_FETCH_STARTUP_PAGES = 1;
-const MAX_COMMENT_FETCH_STARTUP_PAGES = 5;
-const MIN_COMMENT_FETCH_MAX_PAGES = 1;
-const MAX_COMMENT_FETCH_MAX_PAGES = 200;
+const MIN_COMMENT_FETCH_STARTUP_PAGES =
+  settingsSchema?.limits?.commentFetchStartupPages?.min ?? 1;
+const MAX_COMMENT_FETCH_STARTUP_PAGES =
+  settingsSchema?.limits?.commentFetchStartupPages?.max ?? 5;
+const MIN_COMMENT_FETCH_MAX_PAGES =
+  settingsSchema?.limits?.commentFetchMaxPages?.min ?? 1;
+const MAX_COMMENT_FETCH_MAX_PAGES =
+  settingsSchema?.limits?.commentFetchMaxPages?.max ?? 200;
 const COMMENT_FETCH_HARD_MAX_PAGES = 300;
 const COMMENT_FETCH_PAGE_TIMEOUT_MS = 12000;
 const COMMENT_FETCH_LAZY_DELAY_MS = 7000;

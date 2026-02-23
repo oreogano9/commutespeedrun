@@ -1,5 +1,6 @@
 let lastPosition = "";
 const IS_EDITOR_MODE = false;
+const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
 
 const DEFAULT_OVERLAY_SCALE = 1.05;
 const DEFAULT_DISPLAY_DURATION = 10;
@@ -15,29 +16,38 @@ const DEFAULT_FOLLOW_PLAYBACK_SPEED = true;
 const DEFAULT_EARLY_SECONDS = 5;
 const DEFAULT_TIMESTAMP_ACCENT_EFFECT = "rubberband";
 const DEFAULT_REVERSE_STACK_ORDER = false;
-const DEFAULT_POPUP_DARK_MODE = true;
+const DEFAULT_POPUP_DARK_MODE = settingsSchema?.defaults?.popupDarkMode ?? true;
 const DEFAULT_PRIORITY_SCORING_ENABLED = true;
 const DEFAULT_PRIORITY_LIKES_WEIGHT = 1;
 const DEFAULT_TOP_LIKED_THRESHOLD_PERCENT = 12;
 const DEFAULT_POPULARITY_MODE_ENABLED = true;
-const DEFAULT_HEATMAP_ENABLED = true;
+const DEFAULT_HEATMAP_ENABLED = settingsSchema?.defaults?.heatmapEnabled ?? true;
 const DEFAULT_HEATMAP_INTENSITY = 500;
 const DEFAULT_ROUTING_ENABLED = false;
 const DEFAULT_ROUTING_THRESHOLD = 80;
 const DEFAULT_ROUTING_SHORT_CORNER = "bottom-left";
 const DEFAULT_ROUTING_LONG_CORNER = "top-right";
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
-const DEFAULT_SHOW_UPCOMING_DOT = true;
+const DEFAULT_SHOW_UPCOMING_DOT = settingsSchema?.defaults?.showUpcomingDot ?? true;
 const DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS = true;
-const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES = true;
-const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES = true;
-const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
-const DEFAULT_COMMENT_FETCH_STARTUP_PAGES = 1;
-const DEFAULT_COMMENT_FETCH_MAX_PAGES = 8;
-const DEFAULT_COMMENT_FETCH_AGGRESSIVE = false;
-const DEFAULT_COMMENT_FETCH_ADAPTIVE = true;
-const DEFAULT_LIVE_PAGE_MARKER_UPDATES = true;
-const DEFAULT_COMMENT_SCAN_START_DELAY_SEC = 3;
+const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES =
+  settingsSchema?.defaults?.hideTimestampOnlyMessages ?? true;
+const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES =
+  settingsSchema?.defaults?.hideMultiTimestampMessages ?? true;
+const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED =
+  settingsSchema?.defaults?.experimentalGameSkinAutoEnabled ?? true;
+const DEFAULT_COMMENT_FETCH_STARTUP_PAGES =
+  settingsSchema?.defaults?.commentFetchStartupPages ?? 1;
+const DEFAULT_COMMENT_FETCH_MAX_PAGES =
+  settingsSchema?.defaults?.commentFetchMaxPages ?? 8;
+const DEFAULT_COMMENT_FETCH_AGGRESSIVE =
+  settingsSchema?.defaults?.commentFetchAggressive ?? false;
+const DEFAULT_COMMENT_FETCH_ADAPTIVE =
+  settingsSchema?.defaults?.commentFetchAdaptive ?? true;
+const DEFAULT_LIVE_PAGE_MARKER_UPDATES =
+  settingsSchema?.defaults?.livePageMarkerUpdates ?? true;
+const DEFAULT_COMMENT_SCAN_START_DELAY_SEC =
+  settingsSchema?.defaults?.commentScanStartDelaySec ?? 3;
 const DEFAULT_PRESET_PROFILE = "balanced";
 const DEFAULT_RARITY_SKIN = "default";
 const DEFAULT_RARITY_LOGIC_MODE = "geometric";
@@ -70,8 +80,8 @@ const MIN_OVERLAY_GLASSINESS = 0;
 const MAX_OVERLAY_GLASSINESS = 100;
 const MIN_OVERLAY_DARKNESS = 0;
 const MAX_OVERLAY_DARKNESS = 100;
-const MIN_MAX_MESSAGE_CHARS = 1;
-const MAX_MAX_MESSAGE_CHARS = 5000;
+const MIN_MAX_MESSAGE_CHARS = settingsSchema?.limits?.maxMessageChars?.min ?? 1;
+const MAX_MAX_MESSAGE_CHARS = settingsSchema?.limits?.maxMessageChars?.max ?? 5000;
 const MIN_EARLY_SECONDS = 0;
 const MAX_EARLY_SECONDS = 60;
 const MIN_PRIORITY_LIKES_WEIGHT = 0;
@@ -82,12 +92,18 @@ const MIN_HEATMAP_INTENSITY = 10;
 const MAX_HEATMAP_INTENSITY = 2000;
 const MIN_ROUTING_THRESHOLD = 1;
 const MAX_ROUTING_THRESHOLD = 5000;
-const MIN_COMMENT_FETCH_STARTUP_PAGES = 1;
-const MAX_COMMENT_FETCH_STARTUP_PAGES = 5;
-const MIN_COMMENT_FETCH_MAX_PAGES = 1;
-const MAX_COMMENT_FETCH_MAX_PAGES = 200;
-const MIN_COMMENT_SCAN_START_DELAY_SEC = 0;
-const MAX_COMMENT_SCAN_START_DELAY_SEC = 20;
+const MIN_COMMENT_FETCH_STARTUP_PAGES =
+  settingsSchema?.limits?.commentFetchStartupPages?.min ?? 1;
+const MAX_COMMENT_FETCH_STARTUP_PAGES =
+  settingsSchema?.limits?.commentFetchStartupPages?.max ?? 5;
+const MIN_COMMENT_FETCH_MAX_PAGES =
+  settingsSchema?.limits?.commentFetchMaxPages?.min ?? 1;
+const MAX_COMMENT_FETCH_MAX_PAGES =
+  settingsSchema?.limits?.commentFetchMaxPages?.max ?? 200;
+const MIN_COMMENT_SCAN_START_DELAY_SEC =
+  settingsSchema?.limits?.commentScanStartDelaySec?.min ?? 0;
+const MAX_COMMENT_SCAN_START_DELAY_SEC =
+  settingsSchema?.limits?.commentScanStartDelaySec?.max ?? 20;
 const MIN_RARITY_GEOMETRIC_RATIO = 1.05;
 const MAX_RARITY_GEOMETRIC_RATIO = 3.0;
 const PRESET_PROFILE_VALUES = ["minimal", "balanced"];

@@ -37,6 +37,7 @@ let commentsRequestRetryTimerId = null;
 let autoSkinDetectTimerId = null;
 let monitoredVideo = null;
 let videoMonitorHandlers = null;
+const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
 
 const DEFAULT_OVERLAY_SCALE = 1.05;
 const DEFAULT_DISPLAY_DURATION = 10;
@@ -54,14 +55,16 @@ const DEFAULT_PRIORITY_SCORING_ENABLED = true;
 const DEFAULT_PRIORITY_LIKES_WEIGHT = 1;
 const DEFAULT_TOP_LIKED_THRESHOLD_PERCENT = 12;
 const DEFAULT_POPULARITY_MODE_ENABLED = true;
-const DEFAULT_HEATMAP_ENABLED = true;
+const DEFAULT_HEATMAP_ENABLED =
+  settingsSchema?.defaults?.heatmapEnabled ?? true;
 const DEFAULT_HEATMAP_INTENSITY = 500;
 const DEFAULT_ROUTING_ENABLED = false;
 const DEFAULT_ROUTING_THRESHOLD = 80;
 const DEFAULT_ROUTING_SHORT_CORNER = "bottom-left";
 const DEFAULT_ROUTING_LONG_CORNER = "top-right";
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
-const DEFAULT_SHOW_UPCOMING_DOT = true;
+const DEFAULT_SHOW_UPCOMING_DOT =
+  settingsSchema?.defaults?.showUpcomingDot ?? true;
 const DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS = true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
 const DEFAULT_PRESET_PROFILE = "balanced";
@@ -96,7 +99,7 @@ let priorityLikesWeight = DEFAULT_PRIORITY_LIKES_WEIGHT;
 let topLikedThresholdPercent = DEFAULT_TOP_LIKED_THRESHOLD_PERCENT;
 let popularityModeEnabled = DEFAULT_POPULARITY_MODE_ENABLED;
 let heatmapEnabled = DEFAULT_HEATMAP_ENABLED;
-let timelineMarkersEnabled = true;
+let timelineMarkersEnabled = settingsSchema?.defaults?.timelineMarkersEnabled ?? true;
 let heatmapIntensity = DEFAULT_HEATMAP_INTENSITY;
 let routingEnabled = DEFAULT_ROUTING_ENABLED;
 let routingThreshold = DEFAULT_ROUTING_THRESHOLD;
@@ -111,7 +114,8 @@ let rarityLogicMode = DEFAULT_RARITY_LOGIC_MODE;
 let rarityGeometricRatio = DEFAULT_RARITY_GEOMETRIC_RATIO;
 let overlayRadiusBySkin = null;
 let hiddenRarityTiersBySkin = DEFAULT_HIDDEN_RARITY_TIERS_BY_SKIN;
-let commentScanStartDelaySec = 3;
+let commentScanStartDelaySec =
+  settingsSchema?.defaults?.commentScanStartDelaySec ?? 3;
 
 const MIN_OVERLAY_SCALE = 0.5;
 const MAX_OVERLAY_SCALE = 3.5;
@@ -178,9 +182,12 @@ const LANDING_RUBBERBAND_DURATION_MS = 1000;
 const COMMENTS_REQUEST_INITIAL_DELAY_MS = 900;
 const COMMENTS_REQUEST_RETRY_DELAYS_MS = [1800, 3500, 6000];
 const AUTO_SKIN_DETECT_DELAY_MS = 1200;
-const DEFAULT_COMMENT_SCAN_START_DELAY_SEC = 3;
-const MIN_COMMENT_SCAN_START_DELAY_SEC = 0;
-const MAX_COMMENT_SCAN_START_DELAY_SEC = 20;
+const DEFAULT_COMMENT_SCAN_START_DELAY_SEC =
+  settingsSchema?.defaults?.commentScanStartDelaySec ?? 3;
+const MIN_COMMENT_SCAN_START_DELAY_SEC =
+  settingsSchema?.limits?.commentScanStartDelaySec?.min ?? 0;
+const MAX_COMMENT_SCAN_START_DELAY_SEC =
+  settingsSchema?.limits?.commentScanStartDelaySec?.max ?? 20;
 const CARD_DRAG_ENABLED = false;
 const CARD_DRAG_MOVE_THRESHOLD_PX = 10;
 const CARD_DRAG_CLICK_SUPPRESS_MS = 320;
@@ -482,6 +489,12 @@ function resumeTimestampRuntime({ runScan = true } = {}) {
   }
 }
 
+function shouldRunFreshScanOnResume() {
+  const hasLoadedComments = Array.isArray(comments) && comments.length > 0;
+  const scanInProgress = commentsLoadComplete === false;
+  return !(hasLoadedComments || scanInProgress);
+}
+
 function getEyeSteadySvgMarkup(state) {
   if (state === EYE_STATE_CLOSED) {
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="100%" height="100%">
@@ -667,17 +680,17 @@ function getQuickMenuLoadStatusText() {
       ? Math.max(0, Math.floor(commentsLoadPagesFetched))
       : null;
     if (pagesFetched !== null && pagesFetched > 0) {
-      return `Timestamps loaded (${pagesFetched} pages, ${timestampsCount} timestamps)`;
+      return `Timestamps loaded\n(${pagesFetched} pages, ${timestampsCount} timestamps)`;
     }
-    return `Timestamps loaded (${timestampsCount} timestamps)`;
+    return `Timestamps loaded\n(${timestampsCount} timestamps)`;
   }
   const pagesFetched = Number.isFinite(commentsLoadPagesFetched)
     ? Math.max(0, Math.floor(commentsLoadPagesFetched))
     : 0;
   if (pagesFetched > 0) {
-    return `Timestamps loading... (${pagesFetched} pages scanned so far, ${timestampsCount} timestamps)`;
+    return `Timestamps loading...\n(${pagesFetched} pages scanned so far, ${timestampsCount} timestamps)`;
   }
-  return `Timestamps loading... (${timestampsCount} timestamps)`;
+  return `Timestamps loading...\n(${timestampsCount} timestamps)`;
 }
 
 function getQuickMenuSkinEntries() {
@@ -741,7 +754,7 @@ async function setGlobalOverlayActiveFromQuickMenu(nextValue) {
   if (!next) {
     pauseTimestampRuntime();
   } else {
-    resumeTimestampRuntime({ runScan: true });
+    resumeTimestampRuntime({ runScan: shouldRunFreshScanOnResume() });
   }
   updateEyeToggleVisibility();
 }
@@ -751,7 +764,7 @@ function setLocalNotificationsMutedFromQuickMenu(nextValue) {
   if (!isOverlayRuntimeEnabled()) {
     pauseTimestampRuntime();
   } else {
-    resumeTimestampRuntime({ runScan: true });
+    resumeTimestampRuntime({ runScan: shouldRunFreshScanOnResume() });
   }
   updateEyeToggleVisibility();
 }
@@ -908,7 +921,10 @@ function ensureQuickMenuContent() {
         <div class="menu-item" data-action="toggle-dot"><span>Warning dot</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="open-skins"><span>Rarity skin</span><span class="selected-value js-current-skin"></span></div>
         <div class="menu-item" data-action="rescan"><span>Rescan Comments</span><span class="selected-value">Click to scan now</span></div>
-        <div class="menu-item menu-item-status menu-item-status-load" data-role="load-status"><span class="selected-value js-load-status-text"></span></div>
+        <div class="menu-item menu-item-status menu-item-status-load" data-role="load-status">
+          <span class="selected-value js-load-status-text"></span>
+          <span class="selected-value js-load-status-note" hidden></span>
+        </div>
         <div class="menu-item menu-item-status" data-role="status" hidden><span class="selected-value js-status-text"></span></div>
       </div>
       <div class="menu-panel menu-panel-skins" data-panel="skins">
@@ -1060,6 +1076,14 @@ function updateEyeIconElement(force = false) {
     const loadStatusText = menu.querySelector(".js-load-status-text");
     if (loadStatusText) {
       loadStatusText.textContent = getQuickMenuLoadStatusText();
+    }
+    const loadStatusNote = menu.querySelector(".js-load-status-note");
+    if (loadStatusNote) {
+      const showHeatmapWaitNote = Boolean(heatmapEnabled && !commentsLoadComplete);
+      loadStatusNote.hidden = !showHeatmapWaitNote;
+      loadStatusNote.textContent = showHeatmapWaitNote
+        ? "Heatmap will display after the scan finishes"
+        : "";
     }
 
     const skinList = menu.querySelector(".js-skin-list");
@@ -3829,7 +3853,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!isOverlayRuntimeEnabled()) {
       pauseTimestampRuntime();
     } else {
-      resumeTimestampRuntime({ runScan: true });
+      resumeTimestampRuntime({ runScan: shouldRunFreshScanOnResume() });
     }
     updateEyeToggleVisibility();
     return;
