@@ -17,10 +17,6 @@
         width: 380px;
         height: 840px;
       }
-      html.editor-mode {
-        width: 100%;
-        height: 100%;
-      }
 
       body {
         font-family: Inter, sans-serif;
@@ -31,12 +27,6 @@
         background: linear-gradient(180deg, #f8fbff 0%, #f5f7fb 100%);
         color: #0f172a;
         transition: background 0.2s ease, color 0.2s ease;
-      }
-      body.editor-mode {
-        width: 100%;
-        height: 100%;
-        min-height: 100%;
-        overflow-y: auto;
       }
 
       header {
@@ -676,166 +666,6 @@
         margin-top: 10px;
       }
 
-      body.editor-mode #togglebtn {
-        display: none !important;
-      }
-
-      body.editor-mode .screen-container {
-        max-width: 1480px;
-        margin: 0 auto;
-        padding: 0 16px 20px;
-      }
-
-      body.editor-mode .settings.editor-window {
-        margin-top: 8px;
-      }
-
-      body.editor-mode .editor-header-status {
-        margin-left: auto;
-        font-size: 11px;
-        color: #475569;
-        white-space: nowrap;
-      }
-
-      body.editor-mode .editor-shell {
-        display: grid;
-        grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
-        gap: 14px;
-        align-items: start;
-      }
-
-      body.editor-mode .editor-main-column,
-      body.editor-mode .editor-preview-column {
-        min-width: 0;
-      }
-
-      body.editor-mode .editor-sticky-preview {
-        position: sticky;
-        top: 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      body.editor-mode .editor-preview-panel {
-        border: 1px solid #d5deec;
-        border-radius: 10px;
-        background: #f8fbff;
-        padding: 10px;
-      }
-
-      body.editor-mode .editor-preview-panel .section-title {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: #334155;
-        margin-bottom: 8px;
-      }
-
-      body.editor-mode .editor-preview-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        margin-bottom: 8px;
-      }
-
-      body.editor-mode .editor-preview-meta-line {
-        font-size: 11px;
-        color: #334155;
-        line-height: 1.25;
-      }
-
-      body.editor-mode .editor-preview-tier-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        width: fit-content;
-        max-width: 100%;
-        border: 1px solid #c8d4ea;
-        border-radius: 999px;
-        padding: 4px 8px;
-        background: #fff;
-        color: #1e293b;
-        font-size: 11px;
-        font-weight: 600;
-      }
-
-      body.editor-mode .editor-preview-tier-chip .swatch {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
-        box-shadow: 0 0 0 1px rgb(0 0 0 / 0.22);
-        background: #94a3b8;
-        flex: 0 0 auto;
-      }
-
-      body.editor-mode .editor-preview-tier-chip .key {
-        color: #64748b;
-        font-weight: 500;
-      }
-
-      body.editor-mode .editor-field-group {
-        border: 1px solid #d5deec;
-        border-radius: 10px;
-        background: #f8fbff;
-        padding: 8px 10px;
-        margin-top: 10px;
-      }
-
-      body.editor-mode .editor-field-group:first-of-type {
-        margin-top: 0;
-      }
-
-      body.editor-mode .editor-field-group-title {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        color: #334155;
-        margin-bottom: 8px;
-      }
-
-      body.editor-mode .editor-field-group .setting-row,
-      body.editor-mode .editor-field-group .setting-toggle-row,
-      body.editor-mode .editor-field-group .setting-row-full {
-        margin-bottom: 8px;
-      }
-
-      body.editor-mode .editor-field-group .setting-row:last-child,
-      body.editor-mode .editor-field-group .setting-toggle-row:last-child,
-      body.editor-mode .editor-field-group .setting-row-full:last-child {
-        margin-bottom: 0;
-      }
-
-      body.editor-mode .setting-number {
-        width: 110px;
-      }
-
-      body.editor-mode .setting-text {
-        width: min(260px, 100%);
-        max-width: 260px;
-      }
-
-      body.editor-mode .setting-select {
-        width: min(220px, 100%);
-        max-width: 220px;
-      }
-
-      @media (max-width: 979px) {
-        body.editor-mode .editor-shell {
-          grid-template-columns: 1fr;
-        }
-
-        body.editor-mode .editor-preview-column {
-          order: -1;
-        }
-
-        body.editor-mode .editor-sticky-preview {
-          top: 8px;
-        }
-      }
-
       body.dark-mode {
         background: linear-gradient(180deg, #101726 0%, #0f172a 100%);
         color: #e5e7eb;
@@ -973,30 +803,6 @@
         border-color: #334155;
         background: linear-gradient(180deg, #0b1220 0%, #111b2d 100%);
       }
-      body.dark-mode.editor-mode .editor-header-status {
-        color: #cbd5e1;
-      }
-      body.dark-mode.editor-mode .editor-preview-panel,
-      body.dark-mode.editor-mode .editor-field-group {
-        border-color: #334155;
-        background: #0b1220;
-      }
-      body.dark-mode.editor-mode .editor-preview-panel .section-title,
-      body.dark-mode.editor-mode .editor-field-group-title {
-        color: #cbd5e1;
-      }
-      body.dark-mode.editor-mode .editor-preview-meta-line {
-        color: #cbd5e1;
-      }
-      body.dark-mode.editor-mode .editor-preview-tier-chip {
-        border-color: #3a4b66;
-        background: #0f172a;
-        color: #e2e8f0;
-      }
-      body.dark-mode.editor-mode .editor-preview-tier-chip .key {
-        color: #9eb1cc;
-      }
-
     </style>
   </head>
   <body>
@@ -1123,12 +929,6 @@
           <section class="settings-page" data-page="rarity">
             <div class="settings-section">
               <div class="section-title">Rarity & timeline</div>
-              <div id="open-editor-launcher-section" class="setting-row setting-row-full">
-                <button class="action-button" id="open-rarity-editor-button" type="button">
-                  Open rarity editor
-                </button>
-                <small id="open-rarity-editor-status" class="launcher-status"></small>
-              </div>
               <div class="setting-toggle-row">
                 <label for="popularity-mode-toggle">Temporary popularity mode</label>
                 <label class="mini-switch" for="popularity-mode-toggle">
@@ -1173,12 +973,6 @@
                 <label for="rarity-preview-grid">Rarity preview</label>
                 <div id="rarity-preview-grid" class="rarity-preview-grid" aria-live="polite"></div>
                 <small class="setting-hint">Tier visibility is controlled inline in each row.</small>
-              </div>
-              <div class="setting-row">
-                <label for="top-liked-threshold-slider">Top-liked threshold</label>
-                <output id="top-liked-threshold-value" for="top-liked-threshold-slider">12%</output>
-                <input class="setting-slider" id="top-liked-threshold-slider" type="range" min="1" max="50" step="1" value="12" />
-                <small id="top-liked-cutoff-inline" class="setting-hint">Tier cutoff preview</small>
               </div>
               <div class="setting-toggle-row">
                 <label for="priority-scoring-toggle">Priority scoring</label>

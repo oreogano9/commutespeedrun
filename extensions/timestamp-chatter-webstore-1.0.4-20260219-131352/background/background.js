@@ -1148,13 +1148,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "open_rarity_editor_page") {
-    chrome.tabs.create({
-      url: chrome.runtime.getURL("popup/popup.html?editor=1")
-    });
-    return true;
-  }
-
   if (message.type === "top_liked_cutoff_preview") {
     (async () => {
       try {

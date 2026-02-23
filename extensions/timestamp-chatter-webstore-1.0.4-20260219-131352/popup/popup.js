@@ -1,5 +1,5 @@
 let lastPosition = "";
-const IS_EDITOR_MODE = new URLSearchParams(window.location.search).get("editor") === "1";
+const IS_EDITOR_MODE = false;
 
 const DEFAULT_OVERLAY_SCALE = 1.05;
 const DEFAULT_DISPLAY_DURATION = 10;
@@ -681,7 +681,17 @@ async function getConfigs() {
     localWrite[LOCAL_RARITY_CATALOG_REVISION_KEY] = raritySkinCatalogRevision;
   }
 
-  await chrome.storage.sync.set(syncWrite);
+  const syncNeedsWrite = Object.entries(syncWrite).some(([key, value]) => {
+    const current = storedSync?.[key];
+    if (typeof value === "object" && value !== null) {
+      return JSON.stringify(current ?? null) !== JSON.stringify(value);
+    }
+    return current !== value;
+  });
+
+  if (syncNeedsWrite) {
+    await chrome.storage.sync.set(syncWrite);
+  }
   if (Object.keys(localWrite).length > 0) {
     await chrome.storage.local.set(localWrite);
   }
@@ -767,6 +777,9 @@ function updateHeatmapIntensityLabel(heatmapSlider, heatmapValue) {
 }
 
 function updateTopLikedThresholdLabel(thresholdSlider, thresholdValue) {
+  if (!thresholdSlider || !thresholdValue) {
+    return;
+  }
   thresholdValue.textContent = `${Math.round(Number(thresholdSlider.value))}%`;
 }
 
@@ -1040,8 +1053,6 @@ async function broadcastOverlaySettings({
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  document.documentElement.classList.toggle("editor-mode", IS_EDITOR_MODE);
-  document.body.classList.toggle("editor-mode", IS_EDITOR_MODE);
   const configs = await getConfigs();
   const positionButtons = document.querySelectorAll(".position-button");
   const toggleButton = document.getElementById("togglebtn");
@@ -1148,9 +1159,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const topLikedCutoffInline = document.getElementById("top-liked-cutoff-inline");
   const popupRarityEditorSection = document.getElementById("popup-rarity-editor-section");
   const openEditorLauncherSection = document.getElementById("open-editor-launcher-section");
-  const openRarityEditorButton = document.getElementById("open-rarity-editor-button");
-  const openRarityEditorStatus = document.getElementById("open-rarity-editor-status");
-  const editorConnectedTabs = document.getElementById("editor-connected-tabs");
   const rarityLivePreviewCard = document.getElementById("rarity-live-preview-card");
   const rarityLivePreviewText = document.getElementById("rarity-live-preview-text");
   const rarityLivePreviewLikes = document.getElementById("rarity-live-preview-likes");
@@ -1192,303 +1200,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   };
 
-  function createEditorFieldGroup(titleText) {
-    const group = document.createElement("div");
-    group.className = "editor-field-group";
-    const title = document.createElement("div");
-    title.className = "editor-field-group-title";
-    title.textContent = titleText;
-    group.appendChild(title);
-    return group;
-  }
-
-  function appendRowsToEditorGroup(group, elements) {
-    elements
-      .map((element) => getSettingRow(element))
-      .filter(Boolean)
-      .forEach((row) => {
-        group.appendChild(row);
-      });
-  }
-
-  function renderEditorStickyPreviewMeta() {
-    if (!IS_EDITOR_MODE) {
-      return;
-    }
-    const skinLine = document.getElementById("editor-preview-skin-line");
-    const tierChip = document.getElementById("editor-preview-tier-chip");
-    const tierSwatch = document.getElementById("editor-preview-tier-swatch");
-    const tierLabel = document.getElementById("editor-preview-tier-label");
-    const tierKey = document.getElementById("editor-preview-tier-key");
-    const skin = getSelectedSkinConfig();
-    const tier = getSelectedTier();
-
-    if (skinLine) {
-      skinLine.textContent = skin ? `Skin: ${skin.name}` : "Skin: -";
-    }
-    if (!tierChip || !tierSwatch || !tierLabel || !tierKey) {
-      return;
-    }
-    if (!tier) {
-      tierChip.style.display = "none";
-      return;
-    }
-    tierChip.style.display = "inline-flex";
-    tierSwatch.style.background = rarityShared.normalizeHexColor(
-      tier.bodyColor,
-      "#94A3B8"
+  function renderEditorStickyPreviewMeta() {}
+  const readTopLikedThresholdPercent = () =>
+    clamp(
+      Number(
+        topLikedThresholdSlider?.value ??
+          configs.topLikedThresholdPercent ??
+          DEFAULT_TOP_LIKED_THRESHOLD_PERCENT
+      ),
+      MIN_TOP_LIKED_THRESHOLD_PERCENT,
+      MAX_TOP_LIKED_THRESHOLD_PERCENT
     );
-    tierLabel.textContent = tier.label || "Tier";
-    tierKey.textContent = tier.key ? `(${tier.key})` : "";
-  }
-
-  function initEditorModeLayout() {
-    if (!IS_EDITOR_MODE) {
-      return;
-    }
-    const settingsCard = document.querySelector(".settings");
-    const rarityPage = document.querySelector('.settings-page[data-page="rarity"]');
-    const header = document.querySelector("header");
-    if (!settingsCard || !rarityPage || !popupRarityEditorSection) {
-      return;
-    }
-
-    settingsCard.classList.add("editor-window");
-    if (toggleButton) {
-      toggleButton.style.display = "none";
-    }
-    if (editorConnectedTabs && header && editorConnectedTabs.parentElement !== header) {
-      editorConnectedTabs.classList.add("editor-header-status");
-      editorConnectedTabs.style.display = "block";
-      header.appendChild(editorConnectedTabs);
-    }
-
-    setSettingRowVisible(rarityPreviewGrid, false);
-    setSettingRowVisible(rarityEditorSkinIdInput, false);
-
-    let editorShell = rarityPage.querySelector(".editor-shell");
-    let editorMainColumn = rarityPage.querySelector(".editor-main-column");
-    let editorPreviewColumn = rarityPage.querySelector(".editor-preview-column");
-    let editorStickyPreview = rarityPage.querySelector(".editor-sticky-preview");
-
-    if (!editorShell) {
-      editorShell = document.createElement("div");
-      editorShell.className = "editor-shell";
-      editorMainColumn = document.createElement("div");
-      editorMainColumn.className = "editor-main-column";
-      editorPreviewColumn = document.createElement("div");
-      editorPreviewColumn.className = "editor-preview-column";
-      editorStickyPreview = document.createElement("div");
-      editorStickyPreview.className = "editor-sticky-preview";
-      editorPreviewColumn.appendChild(editorStickyPreview);
-      editorShell.append(editorMainColumn, editorPreviewColumn);
-      rarityPage.appendChild(editorShell);
-    }
-
-    const raritySections = Array.from(rarityPage.querySelectorAll(":scope > .settings-section"));
-    const raritySetupSection =
-      raritySections.find((section) => section !== popupRarityEditorSection) || null;
-    if (raritySetupSection && raritySetupSection.parentElement !== editorMainColumn) {
-      editorMainColumn.appendChild(raritySetupSection);
-    }
-    if (popupRarityEditorSection.parentElement !== editorMainColumn) {
-      editorMainColumn.appendChild(popupRarityEditorSection);
-    }
-
-    let previewPanel = editorStickyPreview.querySelector(".editor-preview-panel");
-    if (!previewPanel) {
-      previewPanel = document.createElement("div");
-      previewPanel.className = "editor-preview-panel";
-
-      const previewTitle = document.createElement("div");
-      previewTitle.className = "section-title";
-      previewTitle.textContent = "Live Preview";
-
-      const previewMeta = document.createElement("div");
-      previewMeta.className = "editor-preview-meta";
-
-      const skinLine = document.createElement("div");
-      skinLine.className = "editor-preview-meta-line";
-      skinLine.id = "editor-preview-skin-line";
-
-      const tierChip = document.createElement("div");
-      tierChip.className = "editor-preview-tier-chip";
-      tierChip.id = "editor-preview-tier-chip";
-
-      const tierSwatch = document.createElement("span");
-      tierSwatch.className = "swatch";
-      tierSwatch.id = "editor-preview-tier-swatch";
-
-      const tierLabel = document.createElement("span");
-      tierLabel.id = "editor-preview-tier-label";
-
-      const tierKey = document.createElement("span");
-      tierKey.className = "key";
-      tierKey.id = "editor-preview-tier-key";
-
-      tierChip.append(tierSwatch, tierLabel, tierKey);
-      previewMeta.append(skinLine, tierChip);
-      previewPanel.append(previewTitle, previewMeta);
-      editorStickyPreview.appendChild(previewPanel);
-    }
-
-    const livePreviewRow = getSettingRow(rarityLivePreviewCard);
-    if (livePreviewRow && livePreviewRow.parentElement !== previewPanel) {
-      previewPanel.appendChild(livePreviewRow);
-    }
-
-    if (popupRarityEditorSection.dataset.editorCategorized !== "1") {
-      const sectionTitle = popupRarityEditorSection.querySelector(".section-title");
-      const groups = [];
-
-      const skinStyleGroup = createEditorFieldGroup("Skin Style");
-      appendRowsToEditorGroup(skinStyleGroup, [
-        rarityEditorSkinNameInput,
-        rarityStyleFamilySelect,
-        rarityStyleRadiusSlider,
-        rarityStyleBorderEnabledToggle,
-        rarityStyleBorderWidthInput,
-        rarityStylePackOpacitySlider
-      ]);
-      groups.push(skinStyleGroup);
-
-      const tierListGroup = createEditorFieldGroup("Tier List");
-      appendRowsToEditorGroup(tierListGroup, [rarityTierList]);
-      groups.push(tierListGroup);
-
-      const tierIdentityGroup = createEditorFieldGroup("Tier Identity");
-      appendRowsToEditorGroup(tierIdentityGroup, [rarityTierLabelInput, rarityTierKeyInput]);
-      groups.push(tierIdentityGroup);
-
-      const visualColorsGroup = createEditorFieldGroup("Visual Colors");
-      appendRowsToEditorGroup(visualColorsGroup, [
-        rarityTierBodyColorInput,
-        rarityTierTextColorInput,
-        rarityTierBorderColorInput,
-        rarityTierMarkerColorInput
-      ]);
-      groups.push(visualColorsGroup);
-
-      const timelineMarkerGroup = createEditorFieldGroup("Timeline Marker");
-      appendRowsToEditorGroup(timelineMarkerGroup, [
-        rarityTierMarkerWidthInput,
-        rarityTierMarkerHeightInput,
-        rarityTierMarkerOffsetInput
-      ]);
-      groups.push(timelineMarkerGroup);
-
-      const assignmentLogicGroup = createEditorFieldGroup("Assignment Logic");
-      appendRowsToEditorGroup(assignmentLogicGroup, [
-        rarityTierPercentileFactorInput,
-        rarityTierMinLikesInput,
-        rarityTierMinGapPrevInput,
-        rarityTierMinGapPrimaryInput
-      ]);
-      groups.push(assignmentLogicGroup);
-
-      const weightingGroup = createEditorFieldGroup("Weighting & Display");
-      appendRowsToEditorGroup(weightingGroup, [
-        rarityTierHeatmapWeightInput,
-        rarityTierDurationMultiplierInput
-      ]);
-      groups.push(weightingGroup);
-
-      const effectsGroup = createEditorFieldGroup("Effects");
-      appendRowsToEditorGroup(effectsGroup, [rarityTierEffectsList]);
-      groups.push(effectsGroup);
-
-      const importExportGroup = createEditorFieldGroup("Import / Export");
-      appendRowsToEditorGroup(importExportGroup, [rarityExportSkinButton]);
-      groups.push(importExportGroup);
-
-      groups.forEach((group) => {
-        if (group.childElementCount > 1) {
-          popupRarityEditorSection.appendChild(group);
-        }
-      });
-      if (sectionTitle) {
-        sectionTitle.textContent = "Rarity skin editor";
-      }
-      popupRarityEditorSection.dataset.editorCategorized = "1";
-    }
-
-    renderEditorStickyPreviewMeta();
-  }
 
   settingsTabs.forEach((tab) => {
     tab.addEventListener("click", () => {
       activateSettingsTab(tab.dataset.tab || "overlay");
     });
   });
-  activateSettingsTab(IS_EDITOR_MODE ? "rarity" : "overlay");
+  activateSettingsTab("overlay");
 
   if (popupRarityEditorSection) {
-    popupRarityEditorSection.style.display = IS_EDITOR_MODE ? "" : "none";
+    popupRarityEditorSection.style.display = "none";
   }
   if (raritySkinActionsRow) {
-    raritySkinActionsRow.style.display = IS_EDITOR_MODE ? "" : "none";
+    raritySkinActionsRow.style.display = "none";
   }
   if (openEditorLauncherSection) {
-    openEditorLauncherSection.style.display = IS_EDITOR_MODE ? "none" : "";
-  }
-
-  if (IS_EDITOR_MODE) {
-    initEditorModeLayout();
-    settingsTabs.forEach((tab) => {
-      tab.style.display = "none";
-    });
-    settingsPages.forEach((page) => {
-      const isRarity = page.dataset.page === "rarity";
-      page.classList.toggle("active", isRarity);
-      page.style.display = isRarity ? "block" : "none";
-    });
-    const title = document.querySelector(".settings h5");
-    if (title) {
-      title.textContent = "Rarity editor";
-    }
-    setSettingRowVisible(popularityModeToggle, false);
-    setSettingRowVisible(topLikedThresholdSlider, false);
-    setSettingRowVisible(priorityScoringToggle, false);
-    setSettingRowVisible(priorityLikesWeightInput, false);
-    setSettingRowVisible(showRarityLabelToggle, false);
-    setSettingRowVisible(heatmapEnabledToggle, false);
-    setSettingRowVisible(heatmapIntensitySlider, false);
-    setSettingRowVisible(rarityPreviewGrid, false);
-    setSettingRowVisible(rarityEditorSkinIdInput, false);
-    if (editorConnectedTabs) {
-      editorConnectedTabs.style.display = "block";
-      chrome.tabs
-        .query({})
-        .then((tabs) => {
-          const count = (tabs || []).filter((tab) =>
-            /^https:\/\/www\.youtube\.com\/watch\?/.test(String(tab?.url || ""))
-          ).length;
-          editorConnectedTabs.textContent = `Connected tabs: ${count} YouTube watch tab${count === 1 ? "" : "s"}`;
-        })
-        .catch(() => {
-          editorConnectedTabs.textContent = "Connected tabs: unavailable";
-        });
-    }
-  } else if (editorConnectedTabs) {
-    editorConnectedTabs.style.display = "none";
-  }
-
-  if (openRarityEditorButton && !IS_EDITOR_MODE) {
-    openRarityEditorButton.addEventListener("click", async () => {
-      if (openRarityEditorStatus) {
-        openRarityEditorStatus.textContent = "";
-      }
-      try {
-        await chrome.runtime.sendMessage({ type: "open_rarity_editor_page" });
-        if (openRarityEditorStatus) {
-          openRarityEditorStatus.textContent = "Opened rarity editor page.";
-        }
-      } catch (error) {
-        if (openRarityEditorStatus) {
-          openRarityEditorStatus.textContent = "Could not open editor page.";
-        }
-      }
-    });
+    openEditorLauncherSection.style.display = "none";
   }
 
   if (configs.isActive === true) {
@@ -1519,7 +1257,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   popupDarkToggle.checked = configs.popupDarkMode;
   priorityScoringToggle.checked = configs.priorityScoringEnabled;
   priorityLikesWeightInput.value = String(configs.priorityLikesWeight);
-  topLikedThresholdSlider.value = String(configs.topLikedThresholdPercent);
+  if (topLikedThresholdSlider) {
+    topLikedThresholdSlider.value = String(configs.topLikedThresholdPercent);
+  }
   popularityModeToggle.checked = configs.popularityModeEnabled;
   raritySkinSelect.value = normalizeRaritySkin(configs.raritySkin);
   rarityLogicSelect.value = normalizeRarityLogicMode(configs.rarityLogicMode);
@@ -1962,7 +1702,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderRarityPreview(raritySkinSelect.value);
   renderSkinEditor();
   renderLiveNotificationPreview();
-  showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
+  if (topLikedThresholdSlider) {
+    showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
+  }
 
   function applyPresetToControls(presetProfile) {
     const profileKey = normalizePresetProfile(presetProfile);
@@ -2014,7 +1756,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderRarityPreview(activeSkinId);
     renderSkinEditor();
     await saveOverlaySettings();
-    await showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
+    if (topLikedThresholdSlider) {
+      await showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
+    }
   }
 
   async function updateSelectedSkin(mutator) {
@@ -2143,12 +1887,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   heatmapIntensitySlider.addEventListener("input", () =>
     updateHeatmapIntensityLabel(heatmapIntensitySlider, heatmapIntensityValue)
   );
-  topLikedThresholdSlider.addEventListener("input", () =>
-    {
-      updateTopLikedThresholdLabel(topLikedThresholdSlider, topLikedThresholdValue);
-      showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
-    }
-  );
+  if (topLikedThresholdSlider) {
+    topLikedThresholdSlider.addEventListener("input", () =>
+      {
+        updateTopLikedThresholdLabel(topLikedThresholdSlider, topLikedThresholdValue);
+        showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
+      }
+    );
+  }
 
   async function saveOverlaySettings() {
     const overlayScale = clamp(
@@ -2209,11 +1955,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       MIN_PRIORITY_LIKES_WEIGHT,
       MAX_PRIORITY_LIKES_WEIGHT
     );
-    const topLikedThresholdPercent = clamp(
-      Number(topLikedThresholdSlider.value || DEFAULT_TOP_LIKED_THRESHOLD_PERCENT),
-      MIN_TOP_LIKED_THRESHOLD_PERCENT,
-      MAX_TOP_LIKED_THRESHOLD_PERCENT
-    );
+    const topLikedThresholdPercent = readTopLikedThresholdPercent();
     const diamondThresholdPercent = deriveDiamondThresholdPercent(topLikedThresholdPercent);
     const popularityModeEnabled = Boolean(popularityModeToggle.checked);
     const rarityLogicMode = normalizeRarityLogicMode(
@@ -2282,7 +2024,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderLiveNotificationPreview();
     earlySecondsInput.value = String(earlySeconds);
     priorityLikesWeightInput.value = String(priorityLikesWeight);
-    topLikedThresholdSlider.value = String(topLikedThresholdPercent);
+    if (topLikedThresholdSlider) {
+      topLikedThresholdSlider.value = String(topLikedThresholdPercent);
+    }
     rarityGeometricRatioSlider.value = rarityGeometricRatio.toFixed(2);
     updateGeometricRatioLabel(rarityGeometricRatioSlider, rarityGeometricRatioValue);
     syncGeometricRatioControlState();
@@ -2414,11 +2158,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       MIN_PRIORITY_LIKES_WEIGHT,
       MAX_PRIORITY_LIKES_WEIGHT
     );
-    const topLikedThresholdPercent = clamp(
-      Number(topLikedThresholdSlider.value || DEFAULT_TOP_LIKED_THRESHOLD_PERCENT),
-      MIN_TOP_LIKED_THRESHOLD_PERCENT,
-      MAX_TOP_LIKED_THRESHOLD_PERCENT
-    );
+    const topLikedThresholdPercent = readTopLikedThresholdPercent();
     const diamondThresholdPercent = deriveDiamondThresholdPercent(topLikedThresholdPercent);
     const popularityModeEnabled = Boolean(popularityModeToggle.checked);
     const rarityLogicMode = normalizeRarityLogicMode(
@@ -2681,7 +2421,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   earlySecondsInput.addEventListener("change", saveOverlaySettings);
   accentEffectSelect.addEventListener("change", saveOverlaySettings);
   priorityLikesWeightInput.addEventListener("change", saveOverlaySettings);
-  topLikedThresholdSlider.addEventListener("change", saveOverlaySettings);
+  if (topLikedThresholdSlider) {
+    topLikedThresholdSlider.addEventListener("change", saveOverlaySettings);
+  }
   rarityLogicSelect.addEventListener("change", () => {
     syncGeometricRatioControlState();
     saveOverlaySettings();
@@ -2749,7 +2491,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderRarityPreview(selectedSkin);
     renderSkinEditor();
     await saveOverlaySettings();
-    await showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
+    if (topLikedThresholdSlider) {
+      await showTopLikedCutoffPreview(Number(topLikedThresholdSlider.value));
+    }
   });
 
   if (rarityAddSkinButton) {
