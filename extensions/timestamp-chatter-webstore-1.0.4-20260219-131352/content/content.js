@@ -8,6 +8,7 @@ let monitoringInitialized = false;
 let comments = [];
 let activeCards = [];
 let activeCardByCommentId = new Map();
+let reactNotificationsOverlayMounted = false;
 let geometricTierRankByCommentSource = new Map();
 let currentVideoId = null;
 let laneElements = new Map();
@@ -709,6 +710,7 @@ function getQuickMenuSkinEntries() {
 function setQuickMenuPanel(panelName) {
   quickMenuActivePanel = panelName === "skins" ? "skins" : "main";
   updateEyeIconElement(true);
+  requestAnimationFrame(() => updateEyeIconElement(true));
 }
 
 function setQuickMenuOpen(nextOpen) {
@@ -1025,7 +1027,6 @@ function updateEyeIconElement(force = false) {
     button.classList.toggle("active", quickMenuOpen);
     button.classList.toggle("is-muted", notificationsMutedByEye || !isActive);
     button.classList.toggle("is-loading", !commentsLoadComplete);
-    positionQuickMenu(button, menu);
     menu.classList.toggle("open", quickMenuOpen);
     menu.setAttribute("aria-hidden", quickMenuOpen ? "false" : "true");
 
@@ -1033,6 +1034,7 @@ function updateEyeIconElement(force = false) {
       const panelName = panel.getAttribute("data-panel");
       panel.classList.toggle("active", panelName === quickMenuActivePanel);
     });
+    positionQuickMenu(button, menu);
 
     const setSwitch = (action, on) => {
       const item = menu.querySelector(`.menu-item[data-action="${action}"]`);
@@ -1135,6 +1137,7 @@ function clamp(value, min, max) {
 }
 
 const rarityShared = globalThis.RaritySkinsShared || null;
+const themeCatalogV2Shared = globalThis.TimestampChatterThemeCatalogV2 || null;
 const LOCAL_RARITY_CATALOG_KEY = rarityShared?.LOCAL_CATALOG_KEY || "raritySkinCatalogV2";
 const LOCAL_RARITY_CATALOG_REVISION_KEY =
   rarityShared?.LOCAL_CATALOG_REVISION_KEY || "raritySkinCatalogRevision";
@@ -1144,6 +1147,27 @@ const SYNC_HIDDEN_RARITY_TIERS_BY_SKIN_ID_KEY =
   rarityShared?.SYNC_HIDDEN_TIERS_BY_SKIN_ID_KEY || "hiddenRarityTiersBySkinId";
 let raritySkinCatalog = rarityShared ? rarityShared.createBuiltInCatalog() : null;
 let raritySkinCatalogRevision = 0;
+let themeCatalogV2 = null;
+let themeCatalogV2Revision = 0;
+
+function applyThemeCatalogV2ToRuntimeCatalog(nextThemeCatalog, nextRevision = Date.now()) {
+  if (!themeCatalogV2Shared || !rarityShared) {
+    return false;
+  }
+  try {
+    const normalizedThemeCatalog = themeCatalogV2Shared.normalizeThemeCatalog(nextThemeCatalog);
+    const runtimeCatalog =
+      themeCatalogV2Shared.buildRuntimeRarityCatalogFromThemeCatalog(normalizedThemeCatalog);
+    themeCatalogV2 = normalizedThemeCatalog;
+    themeCatalogV2Revision = Number(nextRevision || Date.now());
+    applyCatalogToRuntime(runtimeCatalog, raritySkin);
+    raritySkinCatalogRevision = themeCatalogV2Revision;
+    return true;
+  } catch (error) {
+    console.error("[Timestamp Chatter] Failed to apply ThemeCatalogV2", error);
+    return false;
+  }
+}
 
 function buildRuntimeSkinMapFromCatalog(catalog) {
   const normalized = rarityShared
@@ -2701,13 +2725,25 @@ async function getOverlaySettings() {
     ]),
     chrome.storage.local.get([
       LOCAL_RARITY_CATALOG_KEY,
-      LOCAL_RARITY_CATALOG_REVISION_KEY
+      LOCAL_RARITY_CATALOG_REVISION_KEY,
+      themeCatalogV2Shared?.THEME_CATALOG_V2_KEY || "themeCatalogV2",
+      themeCatalogV2Shared?.THEME_CATALOG_V2_REVISION_KEY || "themeCatalogV2Revision"
     ])
   ]);
 
   if (rarityShared) {
+    const storedThemeCatalog = themeCatalogV2Shared
+      ? localValues?.[themeCatalogV2Shared.THEME_CATALOG_V2_KEY]
+      : null;
+    const storedThemeCatalogRevision = themeCatalogV2Shared
+      ? Number(localValues?.[themeCatalogV2Shared.THEME_CATALOG_V2_REVISION_KEY] || Date.now())
+      : 0;
+    if (storedThemeCatalog && themeCatalogV2Shared) {
+      applyThemeCatalogV2ToRuntimeCatalog(storedThemeCatalog, storedThemeCatalogRevision);
+    }
+
     let catalog = localValues?.[LOCAL_RARITY_CATALOG_KEY];
-    if (!catalog || typeof catalog !== "object") {
+    if ((!catalog || typeof catalog !== "object") && !(storedThemeCatalog && themeCatalogV2Shared)) {
       const migrated = rarityShared.migrateLegacyState(values || {});
       catalog = migrated.catalog;
       raritySkinCatalogRevision = Date.now();
@@ -2719,15 +2755,17 @@ async function getOverlaySettings() {
       } catch (error) {
         debugLog("Failed to persist migrated rarity catalog", error);
       }
-    } else {
+    } else if (!storedThemeCatalog || !themeCatalogV2Shared) {
       raritySkinCatalogRevision = Number(
         localValues?.[LOCAL_RARITY_CATALOG_REVISION_KEY] || Date.now()
       );
     }
-    applyCatalogToRuntime(
-      catalog,
-      values?.[SYNC_ACTIVE_RARITY_SKIN_ID_KEY] || values?.raritySkin || DEFAULT_RARITY_SKIN
-    );
+    if (!storedThemeCatalog || !themeCatalogV2Shared) {
+      applyCatalogToRuntime(
+        catalog,
+        values?.[SYNC_ACTIVE_RARITY_SKIN_ID_KEY] || values?.raritySkin || DEFAULT_RARITY_SKIN
+      );
+    }
   }
 
   overlayScale = clamp(Number(values?.overlayScale ?? DEFAULT_OVERLAY_SCALE), MIN_OVERLAY_SCALE, MAX_OVERLAY_SCALE);
@@ -3045,6 +3083,7 @@ function ensureOverlayAttached() {
     host.appendChild(overlayElement);
     debugLog("Reattached overlay to host", host.className || host.id || host.tagName);
   }
+  ensureReactNotificationOverlayMounted();
   return true;
 }
 
@@ -3059,6 +3098,7 @@ function createInterface() {
     overlayElement = document.getElementById("overlay-element");
     ensureOverlayAttached();
     ensureLaneContainers();
+    ensureReactNotificationOverlayMounted();
     applyOverlayStyles();
     updateLaneVisibility();
     updateEyeToggleVisibility();
@@ -3071,6 +3111,7 @@ function createInterface() {
   overlayElement.id = "overlay-element";
   overlayElement.classList.add("overlay-root");
   ensureLaneContainers();
+  ensureReactNotificationOverlayMounted();
   applyOverlayStyles();
   updateLaneVisibility();
 
@@ -3426,7 +3467,252 @@ function startMonitoring() {
   monitoringInitialized = true;
 }
 
+function getReactOverlayRenderer() {
+  return globalThis.TimestampChatterReactOverlay || globalThis.TimestampChatterReactNotifications || null;
+}
+
+function ensureReactNotificationOverlayMounted() {
+  if (!overlayElement) {
+    return false;
+  }
+  const reactRenderer = getReactOverlayRenderer();
+  if (!reactRenderer?.mountOverlay || !reactRenderer?.setOverlayState) {
+    return false;
+  }
+  try {
+    reactRenderer.mountOverlay(overlayElement, {
+      onCardClick: (commentId) => {
+        const cardState = activeCardByCommentId.get(commentId);
+        const comment = cardState?.comment;
+        if (!comment) {
+          return;
+        }
+        if (Date.now() < suppressCardClickUntil) {
+          return;
+        }
+        const seekResult = seekToCommentContext(comment, CLICK_CONTEXT_SECONDS);
+        if (seekResult) {
+          setContextualVisibilityLock(comment, seekResult.anchorTime, CLICK_CONTEXT_SECONDS);
+          armLandingRubberband(comment, seekResult.anchorTime);
+          scheduleReconcile(seekResult.targetTime);
+        }
+      }
+    });
+    if (themeCatalogV2) {
+      reactRenderer.setThemeCatalog?.(themeCatalogV2);
+    }
+    reactRenderer.setActiveThemeId?.(raritySkin);
+    reactNotificationsOverlayMounted = true;
+    pushReactNotificationOverlayState();
+    return true;
+  } catch (error) {
+    debugLog("React overlay mount failed", error);
+    return false;
+  }
+}
+
+function slugifyReactThemeTierName(value, fallback = "tier") {
+  const text = String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return text || fallback;
+}
+
+function buildReactTierForComment(tierName, tierConfig, tierRank = 0) {
+  const activeTheme = themeCatalogV2Shared?.getThemeById && themeCatalogV2
+    ? themeCatalogV2Shared.getThemeById(themeCatalogV2, raritySkin)
+    : null;
+  const themeTiers = Array.isArray(activeTheme?.tiers) ? activeTheme.tiers : [];
+  const targetTierKey = String(tierName || "");
+  const themeTierByKey = themeTiers.find(
+    (entry, index) => slugifyReactThemeTierName(entry?.name, `tier-${index + 1}`) === targetTierKey
+  ) || null;
+  const themeTierByRank =
+    themeTiers[Math.max(0, Math.min(themeTiers.length - 1, Number(tierRank || 0)))] || null;
+  const themeTier = themeTierByKey || themeTierByRank;
+  return {
+    id: String(tierConfig?.key || tierName),
+    name: String(themeTier?.name || getTierDisplayName(tierName)),
+    body: String(themeTier?.body || (rarityShared?.normalizeHexColor?.(tierConfig?.bodyColor, "#2b2b2b") || tierConfig?.bodyColor || "#2b2b2b")),
+    border: String(themeTier?.border || (rarityShared?.normalizeHexColor?.(tierConfig?.borderColor, "#ffffff") || tierConfig?.borderColor || "#ffffff")),
+    text: String(themeTier?.text || (rarityShared?.normalizeHexColor?.(tierConfig?.textColor, "#ffffff") || tierConfig?.textColor || "#ffffff")),
+    radius: themeTier ? Math.max(0, Number(themeTier.radius ?? 8)) : Math.round(getOverlayRadiusForSkin(raritySkin)),
+    borderWidth: themeTier ? Math.max(0, Number(themeTier.borderWidth ?? 2)) : Math.max(0, Number(getCurrentSkinStyleConfig()?.borderWidth || 1)),
+    opacity: themeTier ? Math.max(0, Number(themeTier.opacity ?? 90)) : Math.round(100 - clamp(Number(overlayGlassiness || 20), 0, 100) * 0.8),
+    textOpacity: themeTier ? Math.max(0, Number(themeTier.textOpacity ?? 100)) : 100,
+    effect: themeTier
+      ? String(themeTier.effect || "none")
+      : ((Array.isArray(tierConfig?.effects) && tierConfig.effects.includes("rainbow-cycle"))
+          ? "aurora"
+          : (Array.isArray(tierConfig?.effects) && (tierConfig.effects.includes("glow") || tierConfig.effects.includes("pulse")))
+            ? "galaxy"
+            : "none")
+  };
+}
+
+function buildLikesMetaLabel(comment, tierName) {
+  const likesCount = Number(comment?.likes || 0);
+  if (likesCount > 0) {
+    return `Likes ${formatLikesLabel(likesCount)}${showRarityLabelInNotifications ? ` - ${getTierDisplayName(tierName)}` : ""}`;
+  }
+  return showRarityLabelInNotifications ? getTierDisplayName(tierName) : "";
+}
+
+function buildReactOverlayCardEntry(cardState) {
+  if (!cardState?.comment) {
+    return null;
+  }
+  return {
+    id: cardState.commentId,
+    corner: cardState.targetCorner,
+    order: cardState.order,
+    phase: cardState.phase,
+    tier: cardState.reactTier,
+    tierClass: cardState.tierClass,
+    comment: {
+      text: String(cardState.comment?.text || ""),
+      author: String(cardState.comment?.author || "@User"),
+      avatar: String(cardState.comment?.avatar || "")
+    },
+    likesLabel: cardState.likesText,
+    showMeta: cardState.showMeta,
+    accentClass: cardState.accentClass || "",
+    rubberbandPulse: cardState.rubberbandPulse === true
+  };
+}
+
+function refreshActiveCardVisualsForCurrentSkin() {
+  if (!activeCards.length) {
+    return;
+  }
+  for (const cardState of activeCards) {
+    const comment = cardState?.comment;
+    if (!comment) continue;
+    const likesCount = Number(comment?.likes || 0);
+    const tierRank = getTierRank(likesCount, comment);
+    const tierName = getTierName(tierRank);
+    const tierConfig = getTierConfigByKey(tierName);
+    cardState.tierName = tierName;
+    cardState.tierClass = `${tierName}-liked`;
+    cardState.reactTier = buildReactTierForComment(tierName, tierConfig, tierRank);
+    cardState.likesText = buildLikesMetaLabel(comment, tierName);
+    if (cardState.targetCorner) {
+      cardState.order = getTierOrderForCorner(cardState.targetCorner, tierRank, likesCount);
+    }
+  }
+}
+
+function pushReactNotificationOverlayState() {
+  const reactRenderer = getReactOverlayRenderer();
+  if (!reactRenderer?.setOverlayState || !overlayElement) {
+    return;
+  }
+  const lanes = {
+    "top-left": [],
+    "top-right": [],
+    "bottom-left": [],
+    "bottom-right": []
+  };
+  for (const cardState of activeCards) {
+    const entry = buildReactOverlayCardEntry(cardState);
+    if (!entry || !lanes[entry.corner]) {
+      continue;
+    }
+    lanes[entry.corner].push(entry);
+  }
+  for (const key of Object.keys(lanes)) {
+    lanes[key].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+  }
+  try {
+    reactRenderer.setOverlayState({
+      lanes,
+      globalVisible: isOverlayRuntimeEnabled(),
+      runtimeConfig: {
+        showLikesInNotifications,
+        showRarityLabelInNotifications,
+        overlayRadius,
+        overlayAvatarSize,
+        overlayGlassiness,
+        overlayDarkness,
+        reverseStackOrder,
+        timestampAccentEffect
+      }
+    });
+  } catch (error) {
+    debugLog("React overlay state push failed", error);
+  }
+}
+
+function clearCardStateTimers(cardState) {
+  if (!cardState) return;
+  for (const key of ["hideTimeoutId", "visibleTimerId", "accentTimerId", "accentClearTimerId", "rubberbandTimerId"]) {
+    if (cardState[key]) {
+      clearTimeout(cardState[key]);
+      cardState[key] = null;
+    }
+  }
+}
+
+function scheduleCardPhaseVisible(cardState) {
+  if (!cardState) return;
+  if (cardState.visibleTimerId) {
+    clearTimeout(cardState.visibleTimerId);
+  }
+  cardState.visibleTimerId = setTimeout(() => {
+    if (activeCardByCommentId.get(cardState.commentId) !== cardState) return;
+    if (cardState.phase === "entering") {
+      cardState.phase = "visible";
+      pushReactNotificationOverlayState();
+    }
+    cardState.visibleTimerId = null;
+  }, 16);
+}
+
+function scheduleCardAccent(cardState, delayMs, playbackRate) {
+  if (!cardState || !earlyModeEnabled || timestampAccentEffect === "none") {
+    return;
+  }
+  const effectClass = `accent-${timestampAccentEffect}`;
+  const delay = Math.max(0, Math.min(getDisplayDurationMs(cardState.comment, playbackRate), delayMs));
+  cardState.accentTimerId = setTimeout(() => {
+    if (activeCardByCommentId.get(cardState.commentId) !== cardState) return;
+    cardState.accentClass = effectClass;
+    pushReactNotificationOverlayState();
+    cardState.accentClearTimerId = setTimeout(() => {
+      if (activeCardByCommentId.get(cardState.commentId) !== cardState) return;
+      cardState.accentClass = "";
+      pushReactNotificationOverlayState();
+      cardState.accentClearTimerId = null;
+    }, 1300);
+    cardState.accentTimerId = null;
+  }, delay);
+}
+
+function triggerCardRubberbandState(cardState) {
+  if (!cardState) {
+    return;
+  }
+  cardState.rubberbandPulse = false;
+  pushReactNotificationOverlayState();
+  setTimeout(() => {
+    if (activeCardByCommentId.get(cardState.commentId) !== cardState) return;
+    cardState.rubberbandPulse = true;
+    pushReactNotificationOverlayState();
+    if (cardState.rubberbandTimerId) {
+      clearTimeout(cardState.rubberbandTimerId);
+    }
+    cardState.rubberbandTimerId = setTimeout(() => {
+      if (activeCardByCommentId.get(cardState.commentId) !== cardState) return;
+      cardState.rubberbandPulse = false;
+      pushReactNotificationOverlayState();
+      cardState.rubberbandTimerId = null;
+    }, LANDING_RUBBERBAND_DURATION_MS);
+  }, 0);
+}
+
 function removeCardState(cardState) {
+  clearCardStateTimers(cardState);
   const index = activeCards.indexOf(cardState);
   if (index >= 0) {
     activeCards.splice(index, 1);
@@ -3434,6 +3720,7 @@ function removeCardState(cardState) {
   if (cardState?.commentId) {
     activeCardByCommentId.delete(cardState.commentId);
   }
+  pushReactNotificationOverlayState();
 }
 
 function beginCardHide(cardState) {
@@ -3441,19 +3728,10 @@ function beginCardHide(cardState) {
     removeCardState(cardState);
     return;
   }
-  if (!cardState.card.isConnected) {
-    removeCardState(cardState);
-    return;
-  }
-
   cardState.phase = "hiding";
-  cardState.card.classList.remove("visible");
-  cardState.card.classList.add("hiding");
-
-  setTimeout(() => {
-    if (cardState.card.parentElement) {
-      cardState.card.remove();
-    }
+  pushReactNotificationOverlayState();
+  cardState.hideTimeoutId = setTimeout(() => {
+    cardState.hideTimeoutId = null;
     removeCardState(cardState);
   }, 320);
 }
@@ -3533,7 +3811,7 @@ function reconcileVisibleComments(currentTime) {
       cardState.landingRubberbandPlayed !== true &&
       currentTime >= Number(cardState.landingRubberbandAt) - LANDING_RUBBERBAND_FUZZ_SECONDS
     ) {
-      triggerCardRubberband(cardState.card);
+      triggerCardRubberbandState(cardState);
       cardState.landingRubberbandPlayed = true;
       if (cardState.commentId) {
         clickLandingRubberbandByCommentId.delete(cardState.commentId);
@@ -3562,101 +3840,45 @@ function showOverlay(comment, accentDelayMs = 0) {
   if (activeCardByCommentId.has(commentId)) {
     return;
   }
+  ensureLaneContainers();
+  const reactMounted = ensureReactNotificationOverlayMounted();
   const targetCorner = resolveCommentCorner(comment);
-  const lane = getLaneElement(targetCorner);
-  if (!lane) {
+  if (!reactMounted) {
     return;
   }
 
-  const card = document.createElement("div");
-  card.className = "overlay-comment";
-  if (CARD_DRAG_ENABLED && !routingEnabled) {
-    card.classList.add("draggable-position");
-  }
   const likesCount = Number(comment?.likes || 0);
   const tierRank = getTierRank(likesCount, comment);
   const tierName = getTierName(tierRank);
   const tierConfig = getTierConfigByKey(tierName);
-  card.classList.add(`${tierName}-liked`);
-  applyTierCardVisualStyle(card, tierConfig, tierRank);
-  card.style.order = String(getTierOrderForCorner(targetCorner, tierRank, likesCount));
-  if (CARD_DRAG_ENABLED) {
-    card.addEventListener("pointerdown", (event) => {
-      startCardDrag(event, card, targetCorner);
-    });
-  }
-  card.addEventListener("click", (event) => {
-    if (Date.now() < suppressCardClickUntil) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const seekResult = seekToCommentContext(comment, CLICK_CONTEXT_SECONDS);
-    if (seekResult) {
-      setContextualVisibilityLock(comment, seekResult.anchorTime, CLICK_CONTEXT_SECONDS);
-      armLandingRubberband(comment, seekResult.anchorTime);
-      scheduleReconcile(seekResult.targetTime);
-    }
-  });
-
-  const avatar = document.createElement("img");
-  avatar.className = "comment-avatar";
-  avatar.src = comment.avatar;
-
-  const content = document.createElement("div");
-  content.className = "comment-content";
-
-  const textElement = document.createElement("span");
-  textElement.className = "comment-text";
-  appendCommentTextWithTimestampHighlights(textElement, comment.text);
-  content.appendChild(textElement);
-  if (showLikesInNotifications) {
-    const likesCount = Number(comment?.likes || 0);
-    if (likesCount > 0) {
-      const likesElement = document.createElement("span");
-      likesElement.className = "comment-likes";
-      const raritySuffix = showRarityLabelInNotifications
-        ? ` - ${getTierDisplayName(tierName)}`
-        : "";
-      likesElement.textContent = `Likes ${formatLikesLabel(likesCount)}${raritySuffix}`;
-      content.appendChild(likesElement);
-    }
-  }
-  card.append(avatar, content);
-  const isTopCorner = targetCorner === "top-left" || targetCorner === "top-right";
-  const shouldPrepend = isTopCorner !== reverseStackOrder;
-  if (shouldPrepend) {
-    lane.prepend(card);
-  } else {
-    lane.appendChild(card);
-  }
-
-  requestAnimationFrame(() => {
-    card.classList.add("visible");
-  });
+  const cardOrder = getTierOrderForCorner(targetCorner, tierRank, likesCount);
+  const likesText = buildLikesMetaLabel(comment, tierName);
+  const reactTier = buildReactTierForComment(tierName, tierConfig, tierRank);
   const playbackRate = getActivePlaybackRate();
 
-  if (earlyModeEnabled && timestampAccentEffect !== "none") {
-    const effectClass = `accent-${timestampAccentEffect}`;
-    const delay = Math.max(0, Math.min(getDisplayDurationMs(comment, playbackRate), accentDelayMs));
-    setTimeout(() => {
-      card.classList.add(effectClass);
-      setTimeout(() => {
-        card.classList.remove(effectClass);
-      }, 1300);
-    }, delay);
-  }
   const cardState = {
     commentId,
-    card,
-    phase: "visible",
+    card: null,
+    comment,
+    targetCorner,
+    order: cardOrder,
+    tierName,
+    tierClass: `${tierName}-liked`,
+    reactTier,
+    likesText,
+    showMeta: showLikesInNotifications || showRarityLabelInNotifications,
+    phase: "entering",
+    accentClass: "",
+    rubberbandPulse: false,
     landingRubberbandAt: null,
     landingRubberbandPlayed: true,
     remainingMs: getDisplayDurationMs(comment, playbackRate),
     hideTimeoutId: null,
-    hideStartedAt: Date.now()
+    hideStartedAt: Date.now(),
+    visibleTimerId: null,
+    accentTimerId: null,
+    accentClearTimerId: null,
+    rubberbandTimerId: null
   };
   const landingState = clickLandingRubberbandByCommentId.get(commentId);
   if (landingState && landingState.played !== true && Number.isFinite(landingState.targetTime)) {
@@ -3665,6 +3887,9 @@ function showOverlay(comment, accentDelayMs = 0) {
   }
   activeCards.push(cardState);
   activeCardByCommentId.set(commentId, cardState);
+  pushReactNotificationOverlayState();
+  scheduleCardPhaseVisible(cardState);
+  scheduleCardAccent(cardState, accentDelayMs, playbackRate);
 }
 
 function hideOverlay() {
@@ -3674,10 +3899,7 @@ function hideOverlay() {
   }
   cancelCardDrag();
   for (const cardState of activeCards) {
-    if (cardState.hideTimeoutId) {
-      clearTimeout(cardState.hideTimeoutId);
-      cardState.hideTimeoutId = null;
-    }
+    clearCardStateTimers(cardState);
   }
   activeCards = [];
   activeCardByCommentId.clear();
@@ -3687,9 +3909,7 @@ function hideOverlay() {
     upcomingDotElement.remove();
   }
   upcomingDotElement = null;
-  overlayElement.querySelectorAll(".overlay-comment").forEach((card) => {
-    card.remove();
-  });
+  pushReactNotificationOverlayState();
 }
 
 function changePosition(newPosition) {
@@ -3782,6 +4002,12 @@ function resetVariables() {
     quickMenuMenuElement.remove();
   }
   quickMenuMenuElement = null;
+  try {
+    getReactOverlayRenderer()?.unmountOverlay?.();
+  } catch (error) {
+    // ignore teardown errors
+  }
+  reactNotificationsOverlayMounted = false;
   if (eyeToggleElement && eyeToggleElement.parentElement) {
     eyeToggleElement.remove();
   }
@@ -3856,6 +4082,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       resumeTimestampRuntime({ runScan: shouldRunFreshScanOnResume() });
     }
     updateEyeToggleVisibility();
+    return;
+  }
+
+  if (message.type === "theme_catalog_updated") {
+    if (themeCatalogV2Shared && message.themeCatalogV2) {
+      applyThemeCatalogV2ToRuntimeCatalog(
+        message.themeCatalogV2,
+        Number(message.themeCatalogV2Revision || Date.now())
+      );
+      raritySkin = normalizeRaritySkin(
+        String(message.activeThemeId || message.activeRaritySkinId || raritySkin)
+      );
+      recomputeLikeTierThresholds();
+      refreshActiveCardVisualsForCurrentSkin();
+      getReactOverlayRenderer()?.setThemeCatalog?.(themeCatalogV2);
+      getReactOverlayRenderer()?.setActiveThemeId?.(raritySkin);
+      pushReactNotificationOverlayState();
+      applyOverlayStyles();
+      scheduleRenderTimeMarkers();
+      const video = getVideo();
+      if (video && !isAdPlaying()) {
+        scheduleReconcile(video.currentTime);
+      }
+      updateEyeToggleVisibility();
+    }
     return;
   }
 
@@ -3978,6 +4229,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         message.activeRaritySkinConfig
       );
     }
+    if (themeCatalogV2Shared && message.themeCatalogV2) {
+      applyThemeCatalogV2ToRuntimeCatalog(
+        message.themeCatalogV2,
+        Number(message.themeCatalogV2Revision || Date.now())
+      );
+    }
     if (message.raritySkinCatalogRevision) {
       raritySkinCatalogRevision = Number(message.raritySkinCatalogRevision || raritySkinCatalogRevision);
     }
@@ -4004,6 +4261,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       MAX_COMMENT_SCAN_START_DELAY_SEC
     );
     recomputeLikeTierThresholds();
+    refreshActiveCardVisualsForCurrentSkin();
+    getReactOverlayRenderer()?.setThemeCatalog?.(themeCatalogV2);
+    getReactOverlayRenderer()?.setActiveThemeId?.(raritySkin);
+    pushReactNotificationOverlayState();
     applyOverlayStyles();
     scheduleRenderTimeMarkers();
     const timingBehaviorChanged =
@@ -4024,7 +4285,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     if (video && !isAdPlaying() && rarityBehaviorChanged) {
-      hideOverlay();
       scheduleReconcile(video.currentTime);
     }
     if (video && !isAdPlaying() && timingBehaviorChanged) {
@@ -4047,11 +4307,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     raritySkin = nextSkin;
     overlayRadius = getOverlayRadiusForSkin(raritySkin);
     recomputeLikeTierThresholds();
+    refreshActiveCardVisualsForCurrentSkin();
+    getReactOverlayRenderer()?.setThemeCatalog?.(themeCatalogV2);
+    getReactOverlayRenderer()?.setActiveThemeId?.(raritySkin);
+    pushReactNotificationOverlayState();
     applyOverlayStyles();
     scheduleRenderTimeMarkers();
     const video = getVideo();
     if (video && !isAdPlaying()) {
-      hideOverlay();
       scheduleReconcile(video.currentTime);
     }
     return;

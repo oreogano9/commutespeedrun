@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes tcTwinkle { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); } }
+@keyframes tcAuroraFlow {
+  0% { filter: hue-rotate(0deg) blur(20px); transform: translate(-10%, -10%) scale(1.2) rotate(0deg); }
+  50% { filter: hue-rotate(180deg) blur(30px); transform: translate(10%, 5%) scale(1.4) rotate(5deg); }
+  100% { filter: hue-rotate(360deg) blur(20px); transform: translate(-10%, -10%) scale(1.2) rotate(0deg); }
+}
+@keyframes tcGalaxyRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes tcShaderFloat {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(8px, -6px, 0) scale(1.06); }
+  66% { transform: translate3d(-6px, 7px, 0) scale(0.97); }
+}
+
+.tc-anim-twinkle { animation: tcTwinkle 2.5s infinite ease-in-out; }
+.tc-notif-aurora { animation: tcAuroraFlow 12s infinite ease-in-out; }
+.tc-notif-galaxy { animation: tcGalaxyRotate 90s linear infinite; }
+.tc-notif-shader-blob { animation: tcShaderFloat 12s ease-in-out infinite; will-change: transform; }
+
+.overlay-comment.tc-react-hosted-card {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  width: max-content !important;
+  min-width: 0;
+  max-width: min(520px, calc(100vw - 9rem)) !important;
+  border-radius: 0 !important;
+  overflow: visible !important;
+  clip-path: none !important;
+  box-shadow: none !important;
+}
+.overlay-comment.tc-react-hosted-card::before,
+.overlay-comment.tc-react-hosted-card::after {
+  content: none !important;
+  animation: none !important;
+  background: none !important;
+  box-shadow: none !important;
+}
+.overlay-comment.tc-react-hosted-card > .tc-live-react-card-frame {
+  display: block;
+  width: auto !important;
+  max-width: 100% !important;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.overlay-comment.tc-react-hosted-card > .tc-live-react-card-frame > * {
+  max-width: 100%;
+  box-sizing: border-box;
+}

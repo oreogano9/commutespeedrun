@@ -1,6 +1,7 @@
 let lastPosition = "";
 const IS_EDITOR_MODE = false;
 const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
+const themeCatalogV2Shared = globalThis.TimestampChatterThemeCatalogV2 || null;
 
 const DEFAULT_OVERLAY_SCALE = 1.05;
 const DEFAULT_DISPLAY_DURATION = 10;
@@ -1175,6 +1176,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const topLikedCutoffInline = document.getElementById("top-liked-cutoff-inline");
   const popupRarityEditorSection = document.getElementById("popup-rarity-editor-section");
   const openEditorLauncherSection = document.getElementById("open-editor-launcher-section");
+  const openSkinEditorWindowButton = document.getElementById("open-skin-editor-window-button");
   const rarityLivePreviewCard = document.getElementById("rarity-live-preview-card");
   const rarityLivePreviewText = document.getElementById("rarity-live-preview-text");
   const rarityLivePreviewLikes = document.getElementById("rarity-live-preview-likes");
@@ -1182,6 +1184,60 @@ document.addEventListener("DOMContentLoaded", async () => {
     configs.overlayRadiusBySkin,
     configs.overlayRadius
   );
+
+  async function syncThemeRadiusFromDisplaySlider(activeThemeId, nextRadius) {
+    if (!themeCatalogV2Shared?.normalizeThemeCatalog || !activeThemeId) {
+      return;
+    }
+    try {
+      const local = await chrome.storage.local.get([
+        themeCatalogV2Shared.THEME_CATALOG_V2_KEY,
+        themeCatalogV2Shared.THEME_CATALOG_V2_REVISION_KEY
+      ]);
+      const rawCatalog = local?.[themeCatalogV2Shared.THEME_CATALOG_V2_KEY];
+      if (!rawCatalog) {
+        return;
+      }
+      const normalized = themeCatalogV2Shared.normalizeThemeCatalog(rawCatalog);
+      const themes = Array.isArray(normalized?.themes) ? normalized.themes.map((theme) => ({
+        ...theme,
+        tiers: Array.isArray(theme?.tiers) ? theme.tiers.map((tier) => ({ ...tier })) : []
+      })) : [];
+      const themeIndex = themes.findIndex((theme) => String(theme?.id || "") === String(activeThemeId));
+      if (themeIndex < 0) {
+        return;
+      }
+      const roundedRadius = normalizeRadiusValue(nextRadius);
+      let changed = false;
+      themes[themeIndex].tiers = themes[themeIndex].tiers.map((tier) => {
+        const currentRadius = normalizeRadiusValue(Number(tier?.radius ?? roundedRadius));
+        if (currentRadius === roundedRadius) {
+          return tier;
+        }
+        changed = true;
+        return { ...tier, radius: roundedRadius };
+      });
+      if (!changed) {
+        return;
+      }
+      const nextCatalog = themeCatalogV2Shared.normalizeThemeCatalog({ ...normalized, themes });
+      const nextRevision = Date.now();
+      await chrome.storage.local.set({
+        [themeCatalogV2Shared.THEME_CATALOG_V2_KEY]: nextCatalog,
+        [themeCatalogV2Shared.THEME_CATALOG_V2_REVISION_KEY]: nextRevision,
+        [themeCatalogV2Shared.THEME_CATALOG_V2_SCHEMA_VERSION_KEY]:
+          Number(themeCatalogV2Shared.THEME_CATALOG_V2_SCHEMA_VERSION || 1)
+      });
+      await chrome.runtime.sendMessage({
+        type: "theme_catalog_updated",
+        themeCatalogV2: nextCatalog,
+        themeCatalogV2Revision: nextRevision,
+        activeThemeId: String(activeThemeId)
+      });
+    } catch (error) {
+      // Ignore theme-sync failures so display settings still save.
+    }
+  }
   let hiddenRarityTiersBySkin = normalizeHiddenRarityTiersBySkin(
     configs.hiddenRarityTiersBySkin
   );
@@ -1242,7 +1298,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     raritySkinActionsRow.style.display = "none";
   }
   if (openEditorLauncherSection) {
-    openEditorLauncherSection.style.display = "none";
+    openEditorLauncherSection.style.display = "";
   }
 
   if (configs.isActive === true) {
@@ -1626,6 +1682,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         renderTierEditor();
       });
       rarityTierList.appendChild(item);
+    });
+  }
+
+  if (openSkinEditorWindowButton) {
+    openSkinEditorWindowButton.addEventListener("click", async () => {
+      try {
+        await chrome.runtime.sendMessage({ type: "open_skin_editor_window" });
+      } catch (error) {
+        console.error("Failed to open skin editor window", error);
+      }
     });
   }
 
@@ -2107,6 +2173,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
 
     await chrome.storage.sync.set(settings);
+    await syncThemeRadiusFromDisplaySlider(raritySkin, overlayRadius);
     await broadcastOverlaySettings({
       ...settings,
       raritySkinCatalogRevision,
@@ -2411,6 +2478,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     overlayRadiusBySkin[selectedRaritySkin] = overlayRadius;
 
     await chrome.storage.sync.set(presetSettings);
+    await syncThemeRadiusFromDisplaySlider(selectedRaritySkin, overlayRadius);
     await broadcastOverlaySettings({
       ...presetSettings,
       raritySkin: selectedRaritySkin,

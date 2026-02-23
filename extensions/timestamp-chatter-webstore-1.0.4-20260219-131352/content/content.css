@@ -39,6 +39,9 @@
   flex-direction: column;
   gap: 12px;
   align-items: flex-start;
+  width: calc(100% - 8rem);
+  max-width: calc(100% - 8rem);
+  overflow: visible;
 }
 
 #overlay-element .overlay-lane.hidden {
@@ -1805,6 +1808,12 @@
 .__tc-ts-marker.skin-borderlands2.tier-seraph,
 .__tc-ts-marker.skin-borderlands2.tier-pearlescent {
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35), 0 0 10px currentColor;
+}
+
+/* React notification migration: remove marker glow globally while preserving shape/color. */
+.__tc-ts-marker,
+.__tc-ts-marker:hover {
+  box-shadow: none !important;
 }
 
 @keyframes marker-diamond-shimmer {

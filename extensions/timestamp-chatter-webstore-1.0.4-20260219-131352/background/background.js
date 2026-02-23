@@ -1,8 +1,11 @@
 import * as youtubei from "./youtubei.js";
 import "../shared/rarity-skins.js";
 import "../shared/settings-schema.js";
+import "../shared/theme-catalog-v2.js";
 
 const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
+const rarityShared = globalThis.RaritySkinsShared || null;
+const themeCatalogV2Shared = globalThis.TimestampChatterThemeCatalogV2 || null;
 
 const DEFAULT_ALLOW_LONG_MESSAGES =
   settingsSchema?.defaults?.allowLongMessages ?? false;
@@ -45,6 +48,7 @@ const COMMENT_FETCH_LAZY_DELAY_MS = 7000;
 
 const commentsCache = new Map();
 const lazyFetchPromises = new Map();
+let skinEditorWindowId = null;
 let lastAllowLongMessages = DEFAULT_ALLOW_LONG_MESSAGES;
 let lastMaxMessageChars = DEFAULT_MAX_MESSAGE_CHARS;
 let lastHideTimestampOnlyMessages = DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES;
@@ -56,61 +60,123 @@ let lastCommentFetchAggressive = DEFAULT_COMMENT_FETCH_AGGRESSIVE;
 let lastCommentFetchAdaptive = DEFAULT_COMMENT_FETCH_ADAPTIVE;
 let lastLivePageMarkerUpdates = DEFAULT_LIVE_PAGE_MARKER_UPDATES;
 
+const LOCAL_RARITY_CATALOG_KEY =
+  rarityShared?.LOCAL_CATALOG_KEY || "raritySkinCatalogV2";
+const LOCAL_RARITY_CATALOG_REVISION_KEY =
+  rarityShared?.LOCAL_CATALOG_REVISION_KEY || "raritySkinCatalogRevision";
+const LEGACY_RARITY_CATALOG_BACKUP_KEY = "legacyRaritySkinCatalogBackup";
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+async function syncLegacyRuntimeCatalogFromThemeCatalogV2(themeCatalog, revision, activeThemeId, options = {}) {
+  if (!themeCatalogV2Shared || !chrome?.storage?.local) {
+    return null;
+  }
+  const runtimeCatalog = themeCatalogV2Shared.buildRuntimeRarityCatalogFromThemeCatalog(themeCatalog);
+  const localWrite = {
+    [LOCAL_RARITY_CATALOG_KEY]: runtimeCatalog,
+    [LOCAL_RARITY_CATALOG_REVISION_KEY]: Number(revision || Date.now())
+  };
+
+  if (options.backupLegacy === true) {
+    try {
+      const existing = await chrome.storage.local.get([LEGACY_RARITY_CATALOG_BACKUP_KEY, LOCAL_RARITY_CATALOG_KEY]);
+      if (!existing?.[LEGACY_RARITY_CATALOG_BACKUP_KEY] && existing?.[LOCAL_RARITY_CATALOG_KEY]) {
+        localWrite[LEGACY_RARITY_CATALOG_BACKUP_KEY] = existing[LOCAL_RARITY_CATALOG_KEY];
+      }
+    } catch (error) {
+      // Ignore backup read failures.
+    }
+  }
+
+  await chrome.storage.local.set(localWrite);
+
+  const nextActiveSkinId = String(activeThemeId || runtimeCatalog?.skins?.[0]?.id || "default");
+  try {
+    await chrome.storage.sync.set({
+      raritySkin: nextActiveSkinId,
+      activeRaritySkinId: nextActiveSkinId
+    });
+  } catch (error) {
+    // Ignore sync failures; local runtime catalog is still updated.
+  }
+
+  return { runtimeCatalog, activeSkinId: nextActiveSkinId };
+}
+
 (async () => {
-  const settings = await chrome.storage.sync.get([
-    "allowLongMessages",
-    "maxMessageChars",
-    "hideTimestampOnlyMessages",
-    "hideMultiTimestampMessages",
-    "experimentalGameSkinAutoEnabled",
-    "commentFetchStartupPages",
-    "commentFetchMaxPages",
-    "commentFetchAggressive",
-    "commentFetchAdaptive",
-    "livePageMarkerUpdates"
-  ]);
-  lastAllowLongMessages =
-    settings?.allowLongMessages === undefined
-      ? DEFAULT_ALLOW_LONG_MESSAGES
-      : Boolean(settings.allowLongMessages);
-  lastMaxMessageChars = clamp(
-    Number(settings?.maxMessageChars ?? DEFAULT_MAX_MESSAGE_CHARS),
-    MIN_MAX_MESSAGE_CHARS,
-    MAX_MAX_MESSAGE_CHARS
-  );
-  lastHideTimestampOnlyMessages = Boolean(
-    settings?.hideTimestampOnlyMessages ?? DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES
-  );
-  lastHideMultiTimestampMessages = Boolean(
-    settings?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
-  );
-  lastExperimentalGameSkinAutoEnabled = Boolean(
-    settings?.experimentalGameSkinAutoEnabled ??
-      DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED
-  );
-  lastCommentFetchStartupPages = clamp(
-    Number(settings?.commentFetchStartupPages ?? DEFAULT_COMMENT_FETCH_STARTUP_PAGES),
-    MIN_COMMENT_FETCH_STARTUP_PAGES,
-    MAX_COMMENT_FETCH_STARTUP_PAGES
-  );
-  lastCommentFetchMaxPages = clamp(
-    Number(settings?.commentFetchMaxPages ?? DEFAULT_COMMENT_FETCH_MAX_PAGES),
-    MIN_COMMENT_FETCH_MAX_PAGES,
-    MAX_COMMENT_FETCH_MAX_PAGES
-  );
-  lastCommentFetchAggressive = Boolean(
-    settings?.commentFetchAggressive ?? DEFAULT_COMMENT_FETCH_AGGRESSIVE
-  );
-  lastCommentFetchAdaptive = Boolean(
-    settings?.commentFetchAdaptive ?? DEFAULT_COMMENT_FETCH_ADAPTIVE
-  );
-  lastLivePageMarkerUpdates = Boolean(
-    settings?.livePageMarkerUpdates ?? DEFAULT_LIVE_PAGE_MARKER_UPDATES
-  );
+  try {
+    const settings = await chrome.storage.sync.get([
+      "allowLongMessages",
+      "maxMessageChars",
+      "hideTimestampOnlyMessages",
+      "hideMultiTimestampMessages",
+      "experimentalGameSkinAutoEnabled",
+      "commentFetchStartupPages",
+      "commentFetchMaxPages",
+      "commentFetchAggressive",
+      "commentFetchAdaptive",
+      "livePageMarkerUpdates"
+    ]);
+    lastAllowLongMessages =
+      settings?.allowLongMessages === undefined
+        ? DEFAULT_ALLOW_LONG_MESSAGES
+        : Boolean(settings.allowLongMessages);
+    lastMaxMessageChars = clamp(
+      Number(settings?.maxMessageChars ?? DEFAULT_MAX_MESSAGE_CHARS),
+      MIN_MAX_MESSAGE_CHARS,
+      MAX_MAX_MESSAGE_CHARS
+    );
+    lastHideTimestampOnlyMessages = Boolean(
+      settings?.hideTimestampOnlyMessages ?? DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES
+    );
+    lastHideMultiTimestampMessages = Boolean(
+      settings?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
+    );
+    lastExperimentalGameSkinAutoEnabled = Boolean(
+      settings?.experimentalGameSkinAutoEnabled ??
+        DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED
+    );
+    lastCommentFetchStartupPages = clamp(
+      Number(settings?.commentFetchStartupPages ?? DEFAULT_COMMENT_FETCH_STARTUP_PAGES),
+      MIN_COMMENT_FETCH_STARTUP_PAGES,
+      MAX_COMMENT_FETCH_STARTUP_PAGES
+    );
+    lastCommentFetchMaxPages = clamp(
+      Number(settings?.commentFetchMaxPages ?? DEFAULT_COMMENT_FETCH_MAX_PAGES),
+      MIN_COMMENT_FETCH_MAX_PAGES,
+      MAX_COMMENT_FETCH_MAX_PAGES
+    );
+    lastCommentFetchAggressive = Boolean(
+      settings?.commentFetchAggressive ?? DEFAULT_COMMENT_FETCH_AGGRESSIVE
+    );
+    lastCommentFetchAdaptive = Boolean(
+      settings?.commentFetchAdaptive ?? DEFAULT_COMMENT_FETCH_ADAPTIVE
+    );
+    lastLivePageMarkerUpdates = Boolean(
+      settings?.livePageMarkerUpdates ?? DEFAULT_LIVE_PAGE_MARKER_UPDATES
+    );
+
+    if (themeCatalogV2Shared?.ensureThemeCatalogV2Storage) {
+      try {
+        const seeded = await themeCatalogV2Shared.ensureThemeCatalogV2Storage();
+        if (seeded?.catalog) {
+          await syncLegacyRuntimeCatalogFromThemeCatalogV2(
+            seeded.catalog,
+            seeded.revision,
+            seeded.catalog?.themes?.[0]?.id || "default",
+            { backupLegacy: true }
+          );
+        }
+      } catch (error) {
+        // Ignore theme migration failures during worker boot.
+      }
+    }
+  } catch (error) {
+    // Ignore background boot settings read failures (e.g. transient sync backend/service worker issues).
+  }
 })();
 
 function extractVideoIdFromUrl(url) {
@@ -1055,6 +1121,88 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "open_skin_editor_window") {
+    (async () => {
+      try {
+        if (themeCatalogV2Shared?.ensureThemeCatalogV2Storage) {
+          const seeded = await themeCatalogV2Shared.ensureThemeCatalogV2Storage();
+          if (seeded?.catalog) {
+            await syncLegacyRuntimeCatalogFromThemeCatalogV2(
+              seeded.catalog,
+              seeded.revision,
+              seeded.catalog?.themes?.[0]?.id || "default"
+            );
+          }
+        }
+        const editorUrl = chrome.runtime.getURL("ui-dist/editor/editor.html");
+        if (Number.isInteger(skinEditorWindowId)) {
+          try {
+            const existing = await chrome.windows.get(skinEditorWindowId, { populate: true });
+            if (existing?.id) {
+              await chrome.windows.update(existing.id, { focused: true });
+              if (existing.tabs?.[0]?.id) {
+                await chrome.tabs.update(existing.tabs[0].id, { active: true, url: editorUrl });
+              }
+              return;
+            }
+          } catch (error) {
+            skinEditorWindowId = null;
+          }
+        }
+        const created = await chrome.windows.create({
+          url: editorUrl,
+          type: "popup",
+          width: 1280,
+          height: 900,
+          focused: true
+        });
+        skinEditorWindowId = created?.id ?? null;
+      } catch (error) {
+        // Ignore launcher failures to avoid popup crashes.
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === "theme_catalog_updated") {
+    (async () => {
+      try {
+        const nextRevision = Number(message.themeCatalogV2Revision || Date.now());
+        const tabs = await youtubeWatchTabs();
+        const activeThemeId = String(message.activeThemeId || "default");
+        if (message.themeCatalogV2) {
+          await chrome.storage.local.set({
+            [themeCatalogV2Shared?.THEME_CATALOG_V2_KEY || "themeCatalogV2"]: message.themeCatalogV2,
+            [themeCatalogV2Shared?.THEME_CATALOG_V2_REVISION_KEY || "themeCatalogV2Revision"]: nextRevision,
+            [themeCatalogV2Shared?.THEME_CATALOG_V2_SCHEMA_VERSION_KEY || "themeCatalogV2SchemaVersion"]:
+              Number(themeCatalogV2Shared?.THEME_CATALOG_V2_SCHEMA_VERSION || 1)
+          });
+          await syncLegacyRuntimeCatalogFromThemeCatalogV2(
+            message.themeCatalogV2,
+            nextRevision,
+            activeThemeId
+          );
+        }
+        for (const tab of tabs) {
+          if (!tab?.id) continue;
+          try {
+            await sendMessage(tab.id, {
+              type: "theme_catalog_updated",
+              themeCatalogV2: message.themeCatalogV2 || null,
+              themeCatalogV2Revision: nextRevision,
+              activeThemeId
+            });
+          } catch (error) {
+            // Ignore transient tab navigation errors.
+          }
+        }
+      } catch (error) {
+        // Ignore broadcast failures.
+      }
+    })();
+    return true;
+  }
+
   if (message.type === "auto_detect_skin") {
     if (sender?.tab?.id) {
       applyExperimentalGameSkin(sender.tab.id, message.video_id);
@@ -1268,4 +1416,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   return true;
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === skinEditorWindowId) {
+    skinEditorWindowId = null;
+  }
 });
