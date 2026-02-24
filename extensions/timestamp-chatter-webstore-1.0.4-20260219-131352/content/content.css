@@ -182,8 +182,10 @@
 }
 
 .overlay-comment.hiding {
+  transition: opacity 1s ease;
   opacity: 0;
-  transform: translate3d(0, -8px, 0) scale(0.96);
+  transform: translate3d(0, 0, 0);
+  scale: var(--overlay-tier-scale);
 }
 
 .overlay-comment.top-liked,

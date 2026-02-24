@@ -1621,25 +1621,6 @@ function getTierDisplayName(tierName) {
   return String(tierName || "Rarity");
 }
 
-function buildDebugTimestampTierListText() {
-  const processedComments = Array.isArray(comments)
-    ? comments.filter((comment) => comment && typeof comment === "object")
-    : [];
-  if (processedComments.length === 0) {
-    return "";
-  }
-  const lines = processedComments.map((comment) => {
-    const likesCount = Number(comment?.likes || 0);
-    const tierRank = getTierRank(likesCount, comment);
-    const tierName = getTierName(tierRank);
-    const tierLabel = getTierDisplayName(tierName);
-    return `${likesCount} | ${tierLabel}`;
-  });
-  lines.push("");
-  lines.push(`Total timestamped comments processed: ${processedComments.length}`);
-  return lines.join("\n");
-}
-
 function getTierDurationMultiplier(tierRank) {
   const tierName = getTierName(tierRank);
   const tierConfig = getTierConfigByKey(tierName);
@@ -4165,7 +4146,7 @@ function beginCardHide(cardState) {
   cardState.hideTimeoutId = setTimeout(() => {
     cardState.hideTimeoutId = null;
     removeCardState(cardState);
-  }, 320);
+  }, 1000);
 }
 
 function isAdPlaying() {
@@ -4483,15 +4464,6 @@ locationChange(() => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "detectGameMetadata") {
     sendResponse({ gameText: detectYouTubeGameMetadataText() });
-    return;
-  }
-  if (message.type === "collect_debug_timestamp_tier_list") {
-    const text = buildDebugTimestampTierListText();
-    sendResponse({
-      ok: true,
-      reason: text ? "" : "no_data",
-      text
-    });
     return;
   }
   sendResponse(true);

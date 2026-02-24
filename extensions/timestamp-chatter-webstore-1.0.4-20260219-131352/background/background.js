@@ -1333,67 +1333,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === "copy_debug_timestamp_tier_list") {
-    (async () => {
-      try {
-        const tabCandidates = [];
-        let tab = null;
-        if (Number.isInteger(message.tabId)) {
-          try {
-            const requestedTab = await chrome.tabs.get(message.tabId);
-            if (
-              requestedTab?.url &&
-              requestedTab.url.startsWith("https://www.youtube.com/watch?v=")
-            ) {
-              tab = requestedTab;
-              tabCandidates.push(requestedTab);
-            }
-          } catch (error) {
-            tab = null;
-          }
-        }
-        if (!tab) {
-          tab = await getPreferredYouTubeWatchTab();
-          if (tab) {
-            tabCandidates.push(tab);
-          }
-        }
-        const allWatchTabs = await youtubeWatchTabs();
-        for (const watchTab of allWatchTabs) {
-          if (!watchTab?.id) {
-            continue;
-          }
-          if (!tabCandidates.some((entry) => entry?.id === watchTab.id)) {
-            tabCandidates.push(watchTab);
-          }
-        }
-        if (tabCandidates.length === 0) {
-          sendResponse({ ok: false, reason: "no_youtube_tab", text: "" });
-          return;
-        }
-        let result = null;
-        let text = "";
-        for (const candidate of tabCandidates) {
-          result = await requestMessage(candidate.id, {
-            type: "collect_debug_timestamp_tier_list"
-          });
-          text = String(result?.text || "");
-          if (text.trim().length > 0) {
-            break;
-          }
-        }
-        sendResponse({
-          ok: Boolean(result?.ok) && text.trim().length > 0,
-          reason: text.trim().length > 0 ? "" : result?.reason || "no_data",
-          text
-        });
-      } catch (error) {
-        sendResponse({ ok: false, reason: "request_failed", text: "" });
-      }
-    })();
-    return true;
-  }
-
   if (message.type === "overlaySettings") {
     const allowLongMessages =
       message.allowLongMessages === undefined

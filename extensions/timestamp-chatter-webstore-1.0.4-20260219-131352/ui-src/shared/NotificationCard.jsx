@@ -132,7 +132,7 @@ export function NotificationCard({
           </div>
           <div className={`flex-1 min-w-0 flex flex-col gap-1 ${(isEditor && showTierControls) ? 'pr-6' : ''}`}>
             <p
-              className={`${compact ? 'text-xs' : 'text-[13px]'} leading-snug font-medium ${usesLiveLayout ? 'line-clamp-2' : ''}`}
+              className={`${compact ? 'text-xs' : 'text-[13px]'} leading-snug font-medium`}
               style={{ color: hexToRgba(textColor, textOpacity) }}
             >
               {text}
@@ -140,7 +140,7 @@ export function NotificationCard({
             {showMeta && (
               usesLiveLayout ? (
                 <div
-                  className="text-[10px] font-bold tracking-tight opacity-70 truncate"
+                  className="text-[10px] font-bold tracking-tight opacity-70"
                   style={{ color: textColor }}
                 >
                   {liveMetaText}

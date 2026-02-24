@@ -99,6 +99,14 @@ function getAnchorStackIndex(index, total, laneKey) {
   return index;
 }
 
+function getCardOpacity(entry, index, total, laneKey, runtimeConfig) {
+  const baseOpacity = getStackCardOpacity(
+    getAnchorStackIndex(index, total, laneKey),
+    runtimeConfig
+  );
+  return entry?.phase === 'hiding' ? 0 : baseOpacity;
+}
+
 function LaneCards({ laneKey, cards, runtimeConfig, onCardClick }) {
   return (
     <>
@@ -114,10 +122,7 @@ function LaneCards({ laneKey, cards, runtimeConfig, onCardClick }) {
           ].filter(Boolean).join(' ')}
           style={{
             order: String(entry.order ?? 0),
-            opacity: getStackCardOpacity(
-              getAnchorStackIndex(index, cards.length, laneKey),
-              runtimeConfig
-            )
+            opacity: getCardOpacity(entry, index, cards.length, laneKey, runtimeConfig)
           }}
         >
           <NotificationCard
