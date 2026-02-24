@@ -63,12 +63,21 @@ const DEFAULT_ROUTING_ENABLED = false;
 const DEFAULT_ROUTING_THRESHOLD = 80;
 const DEFAULT_ROUTING_SHORT_CORNER = "bottom-left";
 const DEFAULT_ROUTING_LONG_CORNER = "top-right";
+const DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS =
+  settingsSchema?.defaults?.showAuthorInNotifications ?? true;
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
 const DEFAULT_SHOW_UPCOMING_DOT =
   settingsSchema?.defaults?.showUpcomingDot ?? true;
+const DEFAULT_STACK_OPACITY_FADE_ENABLED =
+  settingsSchema?.defaults?.stackOpacityFadeEnabled ?? true;
+const DEFAULT_STACK_OPACITY_FADE_START =
+  settingsSchema?.defaults?.stackOpacityFadeStart ?? 6;
+const DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT =
+  settingsSchema?.defaults?.stackOpacityFadeStepPercent ?? 20;
 const DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS = true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
 const DEFAULT_PRESET_PROFILE = "balanced";
+const MINIMAL_MODE_BACKUP_SYNC_KEY = "minimalModeBackupV1";
 const DEFAULT_RARITY_SKIN = "default";
 const DEFAULT_RARITY_LOGIC_MODE = "geometric";
 const DEFAULT_RARITY_GEOMETRIC_RATIO = 2.23;
@@ -106,10 +115,15 @@ let routingEnabled = DEFAULT_ROUTING_ENABLED;
 let routingThreshold = DEFAULT_ROUTING_THRESHOLD;
 let routingShortCorner = DEFAULT_ROUTING_SHORT_CORNER;
 let routingLongCorner = DEFAULT_ROUTING_LONG_CORNER;
+let showAuthorInNotifications = DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS;
 let showLikesInNotifications = DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS;
 let showUpcomingDot = DEFAULT_SHOW_UPCOMING_DOT;
+let stackOpacityFadeEnabled = DEFAULT_STACK_OPACITY_FADE_ENABLED;
+let stackOpacityFadeStart = DEFAULT_STACK_OPACITY_FADE_START;
+let stackOpacityFadeStepPercent = DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT;
 let showRarityLabelInNotifications = DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS;
 let experimentalGameSkinAutoEnabled = DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED;
+let presetProfile = DEFAULT_PRESET_PROFILE;
 let raritySkin = DEFAULT_RARITY_SKIN;
 let rarityLogicMode = DEFAULT_RARITY_LOGIC_MODE;
 let rarityGeometricRatio = DEFAULT_RARITY_GEOMETRIC_RATIO;
@@ -117,6 +131,8 @@ let overlayRadiusBySkin = null;
 let hiddenRarityTiersBySkin = DEFAULT_HIDDEN_RARITY_TIERS_BY_SKIN;
 let commentScanStartDelaySec =
   settingsSchema?.defaults?.commentScanStartDelaySec ?? 3;
+let clearTimestampCacheOnRefresh =
+  settingsSchema?.defaults?.clearTimestampCacheOnRefresh ?? false;
 
 const MIN_OVERLAY_SCALE = 0.5;
 const MAX_OVERLAY_SCALE = 3.5;
@@ -136,6 +152,14 @@ const MIN_PRIORITY_LIKES_WEIGHT = 0;
 const MAX_PRIORITY_LIKES_WEIGHT = 5;
 const MIN_TOP_LIKED_THRESHOLD_PERCENT = 1;
 const MAX_TOP_LIKED_THRESHOLD_PERCENT = 50;
+const MIN_STACK_OPACITY_FADE_START =
+  settingsSchema?.limits?.stackOpacityFadeStart?.min ?? 0;
+const MAX_STACK_OPACITY_FADE_START =
+  settingsSchema?.limits?.stackOpacityFadeStart?.max ?? 50;
+const MIN_STACK_OPACITY_FADE_STEP_PERCENT =
+  settingsSchema?.limits?.stackOpacityFadeStepPercent?.min ?? 0;
+const MAX_STACK_OPACITY_FADE_STEP_PERCENT =
+  settingsSchema?.limits?.stackOpacityFadeStepPercent?.max ?? 25;
 const MIN_RARITY_GEOMETRIC_RATIO = 1.05;
 const MAX_RARITY_GEOMETRIC_RATIO = 3.0;
 const MIN_HEATMAP_INTENSITY = 10;
@@ -183,8 +207,11 @@ const LANDING_RUBBERBAND_DURATION_MS = 1000;
 const COMMENTS_REQUEST_INITIAL_DELAY_MS = 900;
 const COMMENTS_REQUEST_RETRY_DELAYS_MS = [1800, 3500, 6000];
 const AUTO_SKIN_DETECT_DELAY_MS = 1200;
+const FULLSCREEN_OVERLAY_SCALE_BONUS = 0.1;
 const DEFAULT_COMMENT_SCAN_START_DELAY_SEC =
   settingsSchema?.defaults?.commentScanStartDelaySec ?? 3;
+const DEFAULT_CLEAR_TIMESTAMP_CACHE_ON_REFRESH =
+  settingsSchema?.defaults?.clearTimestampCacheOnRefresh ?? false;
 const MIN_COMMENT_SCAN_START_DELAY_SEC =
   settingsSchema?.limits?.commentScanStartDelaySec?.min ?? 0;
 const MAX_COMMENT_SCAN_START_DELAY_SEC =
@@ -784,6 +811,33 @@ async function sendQuickOverlaySettingPatch(patch = {}) {
       if (Object.prototype.hasOwnProperty.call(patch, "timelineMarkersEnabled")) {
         storagePatch.timelineMarkersEnabled = Boolean(patch.timelineMarkersEnabled);
       }
+      if (Object.prototype.hasOwnProperty.call(patch, "overlayScale")) {
+        storagePatch.overlayScale = clamp(
+          Number(patch.overlayScale ?? overlayScale),
+          MIN_OVERLAY_SCALE,
+          MAX_OVERLAY_SCALE
+        );
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "overlayAvatarSize")) {
+        storagePatch.overlayAvatarSize = clamp(
+          Number(patch.overlayAvatarSize ?? overlayAvatarSize),
+          MIN_OVERLAY_AVATAR_SIZE,
+          MAX_OVERLAY_AVATAR_SIZE
+        );
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "showAuthorInNotifications")) {
+        storagePatch.showAuthorInNotifications = Boolean(patch.showAuthorInNotifications);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "showLikesInNotifications")) {
+        storagePatch.showLikesInNotifications = Boolean(patch.showLikesInNotifications);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "showRarityLabelInNotifications")) {
+        storagePatch.showRarityLabelInNotifications = Boolean(patch.showRarityLabelInNotifications);
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "presetProfile")) {
+        storagePatch.presetProfile =
+          String(patch.presetProfile) === "minimal" ? "minimal" : "balanced";
+      }
       if (Object.prototype.hasOwnProperty.call(patch, "raritySkin")) {
         storagePatch.raritySkin = normalizeRaritySkin(patch.raritySkin);
         storagePatch.activeRaritySkinId = storagePatch.raritySkin;
@@ -824,6 +878,108 @@ async function setShowUpcomingDotFromQuickMenu(nextValue) {
   }
   await sendQuickOverlaySettingPatch({ showUpcomingDot });
   scheduleRenderTimeMarkers();
+}
+
+async function setMinimalModeFromQuickMenu(nextValue) {
+  const enableMinimal = Boolean(nextValue);
+  let patch = null;
+
+  if (enableMinimal) {
+    const minimalBackup = {
+      overlayScale: clamp(Number(overlayScale ?? DEFAULT_OVERLAY_SCALE), MIN_OVERLAY_SCALE, MAX_OVERLAY_SCALE),
+      overlayAvatarSize: clamp(
+        Number(overlayAvatarSize ?? DEFAULT_OVERLAY_AVATAR_SIZE),
+        MIN_OVERLAY_AVATAR_SIZE,
+        MAX_OVERLAY_AVATAR_SIZE
+      ),
+      showAuthorInNotifications: Boolean(showAuthorInNotifications),
+      showLikesInNotifications: Boolean(showLikesInNotifications),
+      showRarityLabelInNotifications: Boolean(showRarityLabelInNotifications)
+    };
+    try {
+      await chrome.storage.sync.set({ [MINIMAL_MODE_BACKUP_SYNC_KEY]: minimalBackup });
+    } catch (error) {
+      // Ignore backup write failures.
+    }
+    patch = {
+      presetProfile: "minimal",
+      overlayScale: clamp(
+        Number(minimalBackup.overlayScale) - 0.1,
+        MIN_OVERLAY_SCALE,
+        MAX_OVERLAY_SCALE
+      ),
+      overlayAvatarSize: 22,
+      showAuthorInNotifications: false,
+      showLikesInNotifications: false,
+      showRarityLabelInNotifications: false
+    };
+  } else {
+    let backup = null;
+    try {
+      const backupState = await chrome.storage.sync.get([MINIMAL_MODE_BACKUP_SYNC_KEY]);
+      backup = backupState?.[MINIMAL_MODE_BACKUP_SYNC_KEY] || null;
+    } catch (error) {
+      backup = null;
+    }
+    patch = {
+      presetProfile: "balanced",
+      ...(backup && typeof backup === "object"
+        ? {
+            overlayScale: clamp(
+              Number(backup.overlayScale ?? DEFAULT_OVERLAY_SCALE),
+              MIN_OVERLAY_SCALE,
+              MAX_OVERLAY_SCALE
+            ),
+            overlayAvatarSize: clamp(
+              Number(backup.overlayAvatarSize ?? DEFAULT_OVERLAY_AVATAR_SIZE),
+              MIN_OVERLAY_AVATAR_SIZE,
+              MAX_OVERLAY_AVATAR_SIZE
+            ),
+            showAuthorInNotifications: Boolean(
+              backup.showAuthorInNotifications ?? DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS
+            ),
+            showLikesInNotifications: Boolean(
+              backup.showLikesInNotifications ?? DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS
+            ),
+            showRarityLabelInNotifications: Boolean(
+              backup.showRarityLabelInNotifications ?? DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS
+            )
+          }
+        : {})
+    };
+    try {
+      await chrome.storage.sync.remove(MINIMAL_MODE_BACKUP_SYNC_KEY);
+    } catch (error) {
+      // Ignore cleanup failures.
+    }
+  }
+
+  presetProfile = String(patch.presetProfile || "balanced") === "minimal" ? "minimal" : "balanced";
+  if (Object.prototype.hasOwnProperty.call(patch, "overlayScale")) {
+    overlayScale = clamp(Number(patch.overlayScale), MIN_OVERLAY_SCALE, MAX_OVERLAY_SCALE);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "overlayAvatarSize")) {
+    overlayAvatarSize = clamp(
+      Number(patch.overlayAvatarSize),
+      MIN_OVERLAY_AVATAR_SIZE,
+      MAX_OVERLAY_AVATAR_SIZE
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "showAuthorInNotifications")) {
+    showAuthorInNotifications = Boolean(patch.showAuthorInNotifications);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "showLikesInNotifications")) {
+    showLikesInNotifications = Boolean(patch.showLikesInNotifications);
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "showRarityLabelInNotifications")) {
+    showRarityLabelInNotifications = Boolean(patch.showRarityLabelInNotifications);
+  }
+
+  refreshActiveCardVisualsForCurrentSkin();
+  applyOverlayStyles();
+  pushReactNotificationOverlayState();
+  updateEyeToggleVisibility();
+  await sendQuickOverlaySettingPatch(patch);
 }
 
 async function setRaritySkinFromQuickMenu(nextSkinId) {
@@ -918,6 +1074,7 @@ function ensureQuickMenuContent() {
       <div class="menu-panel menu-panel-main active" data-panel="main">
         <div class="menu-item" data-action="toggle-global"><span>Overlay enabled</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="toggle-local"><span>This Tab (on)</span><div class="toggle-switch"></div></div>
+        <div class="menu-item" data-action="toggle-minimal"><span>Minimal mode</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="toggle-markers"><span>Timeline Markers</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="toggle-heatmap"><span>Heatmap</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="toggle-dot"><span>Warning dot</span><div class="toggle-switch"></div></div>
@@ -976,6 +1133,10 @@ function ensureQuickMenuContent() {
     }
     if (action === "toggle-local") {
       setLocalNotificationsMutedFromQuickMenu(notificationsMutedByEye ? false : true);
+      return;
+    }
+    if (action === "toggle-minimal") {
+      await setMinimalModeFromQuickMenu(presetProfile !== "minimal");
       return;
     }
     if (action === "toggle-markers") {
@@ -1045,6 +1206,7 @@ function updateEyeIconElement(force = false) {
     };
     setSwitch("toggle-global", isActive);
     setSwitch("toggle-local", isTabOverlayEnabled());
+    setSwitch("toggle-minimal", presetProfile === "minimal");
     setSwitch("toggle-markers", timelineMarkersEnabled);
     setSwitch("toggle-heatmap", heatmapEnabled);
     setSwitch("toggle-dot", showUpcomingDot);
@@ -1569,19 +1731,43 @@ function relativeLuminanceFromHex(colorValue) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+function colorVibranceScoreFromHex(colorValue) {
+  const rgb = parseHexColorToRgb(colorValue);
+  if (!rgb) {
+    return null;
+  }
+  const r = rgb.r / 255;
+  const g = rgb.g / 255;
+  const b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const saturation = max <= 0 ? 0 : delta / max; // HSV saturation
+  const luminance = relativeLuminanceFromHex(colorValue) ?? 0;
+
+  // Favor bright colors first, then vividness, so pale bright borders still win over dark saturated fills.
+  return luminance * 0.7 + saturation * 0.3;
+}
+
 function getLuminousTierMarkerDotColor(tierConfig) {
   const bodyColor = String(tierConfig?.bodyColor || "").trim();
   const borderColor = String(tierConfig?.borderColor || "").trim();
-  const bodyLum = relativeLuminanceFromHex(bodyColor);
-  const borderLum = relativeLuminanceFromHex(borderColor);
+  const bodyScore = colorVibranceScoreFromHex(bodyColor);
+  const borderScore = colorVibranceScoreFromHex(borderColor);
 
-  if (bodyLum !== null && borderLum !== null) {
+  if (bodyScore !== null && borderScore !== null) {
+    if (bodyScore !== borderScore) {
+      return bodyScore >= borderScore ? bodyColor : borderColor;
+    }
+    // Tie-breaker: prefer the brighter color.
+    const bodyLum = relativeLuminanceFromHex(bodyColor) ?? 0;
+    const borderLum = relativeLuminanceFromHex(borderColor) ?? 0;
     return bodyLum >= borderLum ? bodyColor : borderColor;
   }
-  if (borderLum !== null) {
+  if (borderScore !== null) {
     return borderColor;
   }
-  if (bodyLum !== null) {
+  if (bodyScore !== null) {
     return bodyColor;
   }
   return String(tierConfig?.markerColor || borderColor || bodyColor || "#ffffff");
@@ -1589,23 +1775,44 @@ function getLuminousTierMarkerDotColor(tierConfig) {
 
 function getTierMarkerMetrics(tierConfig, tierRank = 0) {
   const safeRank = Math.max(0, Math.floor(Number(tierRank) || 0));
+  const tierCount = Math.max(1, getTierKeys().length);
+  const rankProgress = tierCount <= 1 ? 0 : safeRank / (tierCount - 1);
   const fallbackWidth = 5 + Math.min(18, safeRank) * 2;
   const fallbackHeightPct = 118 + Math.min(18, safeRank) * 18;
   const fallbackOffsetTopPct = -(9 + Math.min(18, safeRank) * 8);
 
-  const markerWidthPx = clamp(
+  const baseMarkerWidthPx = clamp(
     Number(tierConfig?.markerWidthPx ?? fallbackWidth),
     3,
     40
   );
-  const markerHeightPct = clamp(
+  const baseMarkerHeightPct = clamp(
     Number(tierConfig?.markerHeightPct ?? fallbackHeightPct),
     100,
     400
   );
-  const markerOffsetTopPct = clamp(
+  const baseMarkerOffsetTopPct = clamp(
     Number(tierConfig?.markerOffsetTopPct ?? fallbackOffsetTopPct),
     -200,
+    40
+  );
+
+  // Emphasize inter-tier marker size differences so higher tiers read more clearly on the timeline.
+  const markerWidthPx = clamp(
+    baseMarkerWidthPx + rankProgress * Math.max(2, baseMarkerWidthPx * 0.5),
+    3,
+    48
+  );
+  const markerHeightPct = clamp(
+    baseMarkerHeightPct * (1 + rankProgress * 0.42),
+    100,
+    460
+  );
+  const markerOffsetTopPct = clamp(
+    baseMarkerOffsetTopPct < 0
+      ? baseMarkerOffsetTopPct * (1 + rankProgress * 0.36)
+      : baseMarkerOffsetTopPct - rankProgress * 8,
+    -240,
     40
   );
 
@@ -2011,7 +2218,7 @@ function buildUniqueCommentLikeEntries(sourceComments) {
   return [...bySource.values()];
 }
 
-function computeGeometricTierRanksBySource(sourceComments) {
+function computeGeometricTierRanksBySourceLegacy(sourceComments) {
   const tierCount = getTierKeys().length;
   const result = new Map();
   if (tierCount <= 0) {
@@ -2071,6 +2278,77 @@ function computeGeometricTierRanksBySource(sourceComments) {
     result.set(sortedHighToLow[cursor].sourceKey, 0);
     cursor += 1;
   }
+  return result;
+}
+
+function computeGeometricTierRanksBySource(sourceComments) {
+  const tierCount = getTierKeys().length;
+  const result = new Map();
+  if (tierCount <= 0) {
+    return result;
+  }
+
+  const entries = buildUniqueCommentLikeEntries(sourceComments);
+  if (entries.length <= 0) {
+    return result;
+  }
+
+  const provisional = computeGeometricTierRanksBySourceLegacy(sourceComments);
+
+  const groupsLowToHigh = [];
+  for (const entry of entries.slice().sort((a, b) => {
+    if (a.likes !== b.likes) {
+      return a.likes - b.likes;
+    }
+    return String(a.sourceKey).localeCompare(String(b.sourceKey));
+  })) {
+    const lastGroup = groupsLowToHigh[groupsLowToHigh.length - 1];
+    if (!lastGroup || lastGroup.likes !== entry.likes) {
+      groupsLowToHigh.push({ likes: entry.likes, items: [entry], assignedRank: 0, locked: false });
+    } else {
+      lastGroup.items.push(entry);
+    }
+  }
+
+  for (const group of groupsLowToHigh) {
+    const countsByRank = new Map();
+    for (const entry of group.items) {
+      const rank = clamp(
+        Number(provisional.get(entry.sourceKey) || 0),
+        0,
+        Math.max(0, tierCount - 1)
+      );
+      countsByRank.set(rank, Number(countsByRank.get(rank) || 0) + 1);
+    }
+    let selectedRank = 0;
+    let bestCount = -1;
+    for (const [rank, count] of countsByRank.entries()) {
+      if (count > bestCount) {
+        bestCount = count;
+        selectedRank = rank;
+        continue;
+      }
+      if (count === bestCount && rank > selectedRank) {
+        selectedRank = rank;
+      }
+    }
+    group.assignedRank = clamp(selectedRank, 0, Math.max(0, tierCount - 1));
+  }
+
+  // Enforce monotonic mapping by like count: more likes can never map to a lower tier.
+  let previousRank = -Infinity;
+  for (const group of groupsLowToHigh) {
+    group.assignedRank = Math.max(group.assignedRank, previousRank);
+    group.assignedRank = clamp(group.assignedRank, 0, Math.max(0, tierCount - 1));
+    previousRank = group.assignedRank;
+  }
+
+  for (const group of groupsLowToHigh) {
+    for (const entry of group.items) {
+      result.set(entry.sourceKey, group.assignedRank);
+    }
+  }
+
   return result;
 }
 
@@ -2729,8 +3007,14 @@ function applyOverlayStyles() {
     normalizedSkin === "animalcrossing"
       ? clamp(Math.max(selectedOverlayRadius, 34), MIN_OVERLAY_RADIUS, MAX_OVERLAY_RADIUS)
       : selectedOverlayRadius;
+  const fullscreenScaleBonus = isVideoInFullscreen() ? FULLSCREEN_OVERLAY_SCALE_BONUS : 0;
+  const effectiveOverlayScale = clamp(
+    Number(overlayScale || DEFAULT_OVERLAY_SCALE) + fullscreenScaleBonus,
+    MIN_OVERLAY_SCALE,
+    MAX_OVERLAY_SCALE
+  );
 
-  overlayElement.style.setProperty("--overlay-scale", String(overlayScale));
+  overlayElement.style.setProperty("--overlay-scale", String(effectiveOverlayScale));
   overlayElement.style.setProperty("--overlay-radius", `${effectiveOverlayRadius}px`);
   overlayElement.style.setProperty("--overlay-avatar-size", `${overlayAvatarSize}px`);
   overlayElement.style.setProperty("--overlay-bg-alpha", bgAlpha);
@@ -2754,6 +3038,18 @@ function applyOverlayStyles() {
   overlayElement.dataset.skinRenderer = "dynamic";
   overlayElement.classList.toggle("debug-mode", debugMode);
   updateLaneVisibility();
+}
+
+function isVideoInFullscreen() {
+  const fsElement = document.fullscreenElement || document.webkitFullscreenElement || null;
+  const host = getOverlayHost();
+  if (fsElement && host && (fsElement === host || fsElement.contains(host) || host.contains(fsElement))) {
+    return true;
+  }
+  if (fsElement && getVideo() && (fsElement === getVideo() || fsElement.contains(getVideo()))) {
+    return true;
+  }
+  return Boolean(document.querySelector("#movie_player.ytp-fullscreen, .html5-video-player.ytp-fullscreen"));
 }
 
 async function getOverlaySettings() {
@@ -2783,8 +3079,12 @@ async function getOverlaySettings() {
       "routingThreshold",
       "routingShortCorner",
       "routingLongCorner",
+      "showAuthorInNotifications",
       "showLikesInNotifications",
       "showUpcomingDot",
+      "stackOpacityFadeEnabled",
+      "stackOpacityFadeStart",
+      "stackOpacityFadeStepPercent",
       "experimentalGameSkinAutoEnabled",
       "showRarityLabelInNotifications",
       "raritySkin",
@@ -2793,6 +3093,7 @@ async function getOverlaySettings() {
       "rarityGeometricRatio",
       "hiddenRarityTiersBySkin",
       "hiddenRarityTiersBySkinId",
+      "clearTimestampCacheOnRefresh",
       "commentScanStartDelaySec",
       "presetProfile"
     ]),
@@ -2920,7 +3221,15 @@ async function getOverlaySettings() {
     String(values?.routingLongCorner ?? DEFAULT_ROUTING_LONG_CORNER),
     DEFAULT_ROUTING_LONG_CORNER
   );
-  const presetProfile = String(values?.presetProfile ?? DEFAULT_PRESET_PROFILE);
+  presetProfile = String(values?.presetProfile ?? DEFAULT_PRESET_PROFILE) === "minimal"
+    ? "minimal"
+    : "balanced";
+  showAuthorInNotifications =
+    presetProfile === "minimal"
+      ? false
+      : Boolean(
+          values?.showAuthorInNotifications ?? DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS
+        );
   showLikesInNotifications =
     presetProfile === "minimal"
       ? false
@@ -2936,6 +3245,21 @@ async function getOverlaySettings() {
         );
   showUpcomingDot = Boolean(
     values?.showUpcomingDot ?? DEFAULT_SHOW_UPCOMING_DOT
+  );
+  stackOpacityFadeEnabled = Boolean(
+    values?.stackOpacityFadeEnabled ?? DEFAULT_STACK_OPACITY_FADE_ENABLED
+  );
+  stackOpacityFadeStart = clamp(
+    Number(values?.stackOpacityFadeStart ?? DEFAULT_STACK_OPACITY_FADE_START),
+    MIN_STACK_OPACITY_FADE_START,
+    MAX_STACK_OPACITY_FADE_START
+  );
+  stackOpacityFadeStepPercent = clamp(
+    Number(
+      values?.stackOpacityFadeStepPercent ?? DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT
+    ),
+    MIN_STACK_OPACITY_FADE_STEP_PERCENT,
+    MAX_STACK_OPACITY_FADE_STEP_PERCENT
   );
   experimentalGameSkinAutoEnabled = Boolean(
     values?.experimentalGameSkinAutoEnabled ??
@@ -2965,6 +3289,9 @@ async function getOverlaySettings() {
     Number(values?.commentScanStartDelaySec ?? DEFAULT_COMMENT_SCAN_START_DELAY_SEC),
     MIN_COMMENT_SCAN_START_DELAY_SEC,
     MAX_COMMENT_SCAN_START_DELAY_SEC
+  );
+  clearTimestampCacheOnRefresh = Boolean(
+    values?.clearTimestampCacheOnRefresh ?? DEFAULT_CLEAR_TIMESTAMP_CACHE_ON_REFRESH
   );
   if (!CARD_DRAG_ENABLED) {
     freePositionEnabled = false;
@@ -3056,7 +3383,7 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0) {
       await chrome.runtime.sendMessage({
         type: "comments",
         video_id: videoId,
-        forceRefresh: true
+        forceRefresh: Boolean(clearTimestampCacheOnRefresh)
       });
     } catch (error) {
       if (isExtensionContextInvalidatedError(error)) {
@@ -3550,8 +3877,22 @@ function ensureReactNotificationOverlayMounted() {
         if (Date.now() < suppressCardClickUntil) {
           return;
         }
+        const currentVideo = getVideo();
+        const wasPaused = Boolean(currentVideo?.paused);
+        const previousTime = Number(currentVideo?.currentTime || 0);
         const seekResult = seekToCommentContext(comment, CLICK_CONTEXT_SECONDS);
         if (seekResult) {
+          if (
+            currentVideo &&
+            wasPaused &&
+            Number.isFinite(seekResult.targetTime) &&
+            seekResult.targetTime < previousTime - 0.05
+          ) {
+            const playResult = currentVideo.play?.();
+            if (playResult && typeof playResult.catch === "function") {
+              playResult.catch(() => {});
+            }
+          }
           setContextualVisibilityLock(comment, seekResult.anchorTime, CLICK_CONTEXT_SECONDS);
           armLandingRubberband(comment, seekResult.anchorTime);
           scheduleReconcile(seekResult.targetTime);
@@ -3591,9 +3932,15 @@ function buildReactTierForComment(tierName, tierConfig, tierRank = 0) {
   const themeTierByRank =
     themeTiers[Math.max(0, Math.min(themeTiers.length - 1, Number(tierRank || 0)))] || null;
   const themeTier = themeTierByKey || themeTierByRank;
+  const hasExplicitThemeTierName =
+    Boolean(themeTier) &&
+    Object.prototype.hasOwnProperty.call(themeTier, "name");
+  const resolvedTierDisplayName = hasExplicitThemeTierName
+    ? String(themeTier?.name ?? "")
+    : getTierDisplayName(tierName);
   return {
     id: String(tierConfig?.key || tierName),
-    name: String(themeTier?.name || getTierDisplayName(tierName)),
+    name: resolvedTierDisplayName,
     body: String(themeTier?.body || (rarityShared?.normalizeHexColor?.(tierConfig?.bodyColor, "#2b2b2b") || tierConfig?.bodyColor || "#2b2b2b")),
     border: String(themeTier?.border || (rarityShared?.normalizeHexColor?.(tierConfig?.borderColor, "#ffffff") || tierConfig?.borderColor || "#ffffff")),
     text: String(themeTier?.text || (rarityShared?.normalizeHexColor?.(tierConfig?.textColor, "#ffffff") || tierConfig?.textColor || "#ffffff")),
@@ -3611,12 +3958,25 @@ function buildReactTierForComment(tierName, tierConfig, tierRank = 0) {
   };
 }
 
-function buildLikesMetaLabel(comment, tierName) {
+function buildLikesMetaLabel(comment, tierName, tierDisplayLabelOverride) {
   const likesCount = Number(comment?.likes || 0);
-  if (likesCount > 0) {
-    return `Likes ${formatLikesLabel(likesCount)}${showRarityLabelInNotifications ? ` - ${getTierDisplayName(tierName)}` : ""}`;
+  const hasTierLabelOverride = arguments.length >= 3;
+  const tierDisplayLabel = hasTierLabelOverride
+    ? String(tierDisplayLabelOverride ?? "").trim()
+    : String(getTierDisplayName(tierName) || "").trim();
+  const showLikesMeta = showLikesInNotifications && likesCount > 0;
+  const showTierMeta = showRarityLabelInNotifications && Boolean(tierDisplayLabel);
+
+  if (showLikesMeta && showTierMeta) {
+    return `Likes ${formatLikesLabel(likesCount)} - ${tierDisplayLabel}`;
   }
-  return showRarityLabelInNotifications ? getTierDisplayName(tierName) : "";
+  if (showLikesMeta) {
+    return `Likes ${formatLikesLabel(likesCount)}`;
+  }
+  if (showTierMeta) {
+    return tierDisplayLabel;
+  }
+  return "";
 }
 
 function buildReactOverlayCardEntry(cardState) {
@@ -3632,7 +3992,7 @@ function buildReactOverlayCardEntry(cardState) {
     tierClass: cardState.tierClass,
     comment: {
       text: String(cardState.comment?.text || ""),
-      author: String(cardState.comment?.author || "@User"),
+      author: String(cardState.comment?.name || cardState.comment?.author || "@User"),
       avatar: String(cardState.comment?.avatar || "")
     },
     likesLabel: cardState.likesText,
@@ -3656,7 +4016,15 @@ function refreshActiveCardVisualsForCurrentSkin() {
     cardState.tierName = tierName;
     cardState.tierClass = `${tierName}-liked`;
     cardState.reactTier = buildReactTierForComment(tierName, tierConfig, tierRank);
-    cardState.likesText = buildLikesMetaLabel(comment, tierName);
+    cardState.likesText = buildLikesMetaLabel(
+      comment,
+      tierName,
+      cardState.reactTier?.name
+    );
+    cardState.showMeta =
+      showAuthorInNotifications ||
+      showLikesInNotifications ||
+      showRarityLabelInNotifications;
     if (cardState.targetCorner) {
       cardState.order = getTierOrderForCorner(cardState.targetCorner, tierRank, likesCount);
     }
@@ -3691,6 +4059,10 @@ function pushReactNotificationOverlayState() {
       runtimeConfig: {
         showLikesInNotifications,
         showRarityLabelInNotifications,
+        showAuthorInNotifications,
+        stackOpacityFadeEnabled,
+        stackOpacityFadeStart,
+        stackOpacityFadeStepPercent,
         overlayRadius,
         overlayAvatarSize,
         overlayGlassiness,
@@ -3912,8 +4284,8 @@ function showOverlay(comment, accentDelayMs = 0) {
   const tierName = getTierName(tierRank);
   const tierConfig = getTierConfigByKey(tierName);
   const cardOrder = getTierOrderForCorner(targetCorner, tierRank, likesCount);
-  const likesText = buildLikesMetaLabel(comment, tierName);
   const reactTier = buildReactTierForComment(tierName, tierConfig, tierRank);
+  const likesText = buildLikesMetaLabel(comment, tierName, reactTier?.name);
   const playbackRate = getActivePlaybackRate();
 
   const cardState = {
@@ -3926,7 +4298,10 @@ function showOverlay(comment, accentDelayMs = 0) {
     tierClass: `${tierName}-liked`,
     reactTier,
     likesText,
-    showMeta: showLikesInNotifications || showRarityLabelInNotifications,
+    showMeta:
+      showAuthorInNotifications ||
+      showLikesInNotifications ||
+      showRarityLabelInNotifications,
     phase: "entering",
     accentClass: "",
     rubberbandPulse: false,
@@ -4077,6 +4452,7 @@ function resetVariables() {
   activeTierThresholds = Object.create(null);
   nonPopularityPrimaryThreshold = 0;
   nonPopularityEliteThreshold = Number.POSITIVE_INFINITY;
+  showAuthorInNotifications = DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS;
   showRarityLabelInNotifications = DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS;
   timelineMarkersEnabled = true;
   raritySkin = DEFAULT_RARITY_SKIN;
@@ -4084,12 +4460,20 @@ function resetVariables() {
   rarityGeometricRatio = DEFAULT_RARITY_GEOMETRIC_RATIO;
   hiddenRarityTiersBySkin = DEFAULT_HIDDEN_RARITY_TIERS_BY_SKIN;
   commentScanStartDelaySec = DEFAULT_COMMENT_SCAN_START_DELAY_SEC;
+  clearTimestampCacheOnRefresh = DEFAULT_CLEAR_TIMESTAMP_CACHE_ON_REFRESH;
   clearMarkers();
   hideOverlay();
 }
 
 window.addEventListener("load", async () => {
   await safeMain();
+});
+
+document.addEventListener("fullscreenchange", () => {
+  applyOverlayStyles();
+});
+document.addEventListener("webkitfullscreenchange", () => {
+  applyOverlayStyles();
 });
 
 locationChange(() => {
@@ -4253,12 +4637,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       routingLongCorner
     );
     const messagePresetProfile = String(message.presetProfile ?? "");
+    if (messagePresetProfile) {
+      presetProfile = messagePresetProfile === "minimal" ? "minimal" : "balanced";
+    }
+    showAuthorInNotifications =
+      messagePresetProfile === "minimal"
+        ? false
+        : Boolean(message.showAuthorInNotifications ?? showAuthorInNotifications);
     showLikesInNotifications =
       messagePresetProfile === "minimal"
         ? false
         : Boolean(message.showLikesInNotifications ?? showLikesInNotifications);
     showUpcomingDot = Boolean(
       message.showUpcomingDot ?? showUpcomingDot
+    );
+    stackOpacityFadeEnabled = Boolean(
+      message.stackOpacityFadeEnabled ?? stackOpacityFadeEnabled
+    );
+    stackOpacityFadeStart = clamp(
+      Number(message.stackOpacityFadeStart ?? stackOpacityFadeStart),
+      MIN_STACK_OPACITY_FADE_START,
+      MAX_STACK_OPACITY_FADE_START
+    );
+    stackOpacityFadeStepPercent = clamp(
+      Number(message.stackOpacityFadeStepPercent ?? stackOpacityFadeStepPercent),
+      MIN_STACK_OPACITY_FADE_STEP_PERCENT,
+      MAX_STACK_OPACITY_FADE_STEP_PERCENT
     );
     experimentalGameSkinAutoEnabled = Boolean(
       message.experimentalGameSkinAutoEnabled ??
@@ -4307,6 +4711,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       Number(message.commentScanStartDelaySec ?? commentScanStartDelaySec),
       MIN_COMMENT_SCAN_START_DELAY_SEC,
       MAX_COMMENT_SCAN_START_DELAY_SEC
+    );
+    clearTimestampCacheOnRefresh = Boolean(
+      message.clearTimestampCacheOnRefresh ?? clearTimestampCacheOnRefresh
     );
     recomputeLikeTierThresholds();
     refreshActiveCardVisualsForCurrentSkin();

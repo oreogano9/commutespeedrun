@@ -31,6 +31,7 @@ export function NotificationCard({
   const body = tier.body || '#222222';
   const border = tier.border || '#ffffff';
   const borderOpacity = Number(tier.borderOpacity ?? 100);
+  const borderStroke = hexToRgba(border, borderOpacity);
   const textColor = tier.text || '#ffffff';
   const opacity = Number(tier.opacity ?? 90);
   const textOpacity = Number(tier.textOpacity ?? 100);
@@ -45,6 +46,16 @@ export function NotificationCard({
     ? `w-full transition-all duration-300 shadow-2xl relative flex flex-col gap-1 overflow-hidden shrink-0 cursor-pointer ${isSelected ? '' : 'hover:scale-[1.02] active:scale-95'}`
     : `w-auto max-w-full shadow-2xl relative flex flex-col gap-1 overflow-hidden shrink-0 ${isEditor ? `cursor-pointer ${isSelected ? '' : 'hover:scale-[1.02] active:scale-95'} transition-all duration-300` : ''}`;
   const displayLikesLabel = String(likesLabel || '').trim();
+  const displayAuthorLabel = String(author || '').trim();
+  const showAuthorInLiveMeta = Boolean(runtimeConfig?.showAuthorInNotifications ?? false);
+  const liveMetaParts = [];
+  if (showAuthorInLiveMeta && displayAuthorLabel) {
+    liveMetaParts.push(displayAuthorLabel);
+  }
+  if (displayLikesLabel) {
+    liveMetaParts.push(displayLikesLabel);
+  }
+  const liveMetaText = liveMetaParts.join(' • ');
 
   return (
     <div
@@ -64,10 +75,11 @@ export function NotificationCard({
           ...style,
           background: hexToRgba(body, opacity),
           backgroundImage: 'none',
-          borderColor: hexToRgba(border, borderOpacity),
-          borderWidth: `${borderWidth}px`,
-          borderStyle: 'solid',
+          borderColor: 'transparent',
+          borderWidth: '0px',
+          borderStyle: 'none',
           borderRadius: `${radius}px`,
+          boxSizing: 'border-box',
           padding: compact ? '8px 12px' : (usesLiveLayout ? '10px 16px' : '12px 16px'),
           color: textColor
         }}
@@ -75,6 +87,14 @@ export function NotificationCard({
         data-tc-tier-border={border}
       >
         <EffectLayer effect={tier.effect} color={border} bodyColor={body} />
+        {borderWidth > 0 && (
+          <div
+            className="absolute inset-0 pointer-events-none z-20 rounded-[inherit]"
+            style={{
+              boxShadow: `inset 0 0 0 ${borderWidth}px ${borderStroke}`
+            }}
+          />
+        )}
         {isEditor && showTierControls && (
           <div className="absolute top-2 right-2 flex flex-col items-center gap-1 z-30 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
@@ -123,7 +143,7 @@ export function NotificationCard({
                   className="text-[10px] font-bold tracking-tight opacity-70 truncate"
                   style={{ color: textColor }}
                 >
-                  {displayLikesLabel}
+                  {liveMetaText}
                 </div>
               ) : (
                 <div

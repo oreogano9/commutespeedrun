@@ -45,6 +45,7 @@ const MAX_COMMENT_FETCH_MAX_PAGES =
 const COMMENT_FETCH_HARD_MAX_PAGES = 300;
 const COMMENT_FETCH_PAGE_TIMEOUT_MS = 12000;
 const COMMENT_FETCH_LAZY_DELAY_MS = 7000;
+const CACHE_KEEPALIVE_REFRESH_INTERVAL_MS = 60 * 1000;
 
 const commentsCache = new Map();
 const lazyFetchPromises = new Map();
@@ -786,13 +787,18 @@ async function sendOverlaySettings(
   routingThreshold,
   routingShortCorner,
   routingLongCorner,
+  showAuthorInNotifications,
   showLikesInNotifications,
   showUpcomingDot,
+  stackOpacityFadeEnabled,
+  stackOpacityFadeStart,
+  stackOpacityFadeStepPercent,
   hideTimestampOnlyMessages,
   hideMultiTimestampMessages,
   hiddenRarityTiersBySkin,
   commentScanStartDelaySec,
   experimentalGameSkinAutoEnabled,
+  clearTimestampCacheOnRefresh,
   showRarityLabelInNotifications,
   raritySkin,
   rarityLogicMode,
@@ -831,14 +837,19 @@ async function sendOverlaySettings(
     routingThreshold,
     routingShortCorner,
     routingLongCorner,
+    showAuthorInNotifications,
     showLikesInNotifications,
     showUpcomingDot,
+    stackOpacityFadeEnabled,
+    stackOpacityFadeStart,
+    stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
     hiddenRarityTiersBySkinId,
     commentScanStartDelaySec,
     experimentalGameSkinAutoEnabled,
+    clearTimestampCacheOnRefresh,
     showRarityLabelInNotifications,
     raritySkin,
     activeRaritySkinId,
@@ -1007,54 +1018,163 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
   }
 }
 
-function detectRaritySkinFromText(text) {
-  const value = String(text || "").toLowerCase();
-  if (!value) {
-    return null;
+async function refreshOpenVideoCacheKeepalive() {
+  try {
+    const tabs = await youtubeWatchTabs();
+    if (!tabs.length) {
+      return;
+    }
+    const now = Date.now();
+    const openVideoIds = new Set();
+    for (const tab of tabs) {
+      const videoId = extractVideoIdFromUrl(tab?.url || "");
+      if (!videoId) {
+        continue;
+      }
+      openVideoIds.add(videoId);
+    }
+
+    for (const videoId of openVideoIds) {
+      const cacheEntry = commentsCache.get(videoId);
+      if (!cacheEntry?.fetchedAt) {
+        continue;
+      }
+      if (lazyFetchPromises.has(videoId)) {
+        continue;
+      }
+      if (now - Number(cacheEntry.fetchedAt || 0) < CACHE_KEEPALIVE_REFRESH_INTERVAL_MS) {
+        continue;
+      }
+      cacheEntry.fetchedAt = now;
+    }
+  } catch (error) {
+    // Ignore periodic keepalive failures.
   }
+}
+
+setInterval(() => {
+  refreshOpenVideoCacheKeepalive();
+}, CACHE_KEEPALIVE_REFRESH_INTERVAL_MS);
+
+function normalizeDetectionTextParts(text) {
+  const value = String(text || "");
   const normalized = value
+    .toLowerCase()
     .normalize("NFKD")
     .replace(/[^\w\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
   const compact = normalized.replace(/\s+/g, "");
+  const tokens = normalized ? normalized.split(" ").filter(Boolean) : [];
+  return { normalized, compact, tokens };
+}
 
-  const rules = [
-    {
-      skin: "borderlands2",
-      keywords: [
-        "borderlands 2",
-        "borderlands2",
-        "bl2",
-        "handsome collection"
-      ]
-    },
-    {
-      skin: "animalcrossing",
-      keywords: [
-        "animal crossing",
-        "animalcrossing",
-        "new horizons",
-        "acnh",
-        "acnl"
-      ]
-    },
-    { skin: "minecraft", keywords: ["minecraft", "hypixel", "skyblock"] },
-    { skin: "borderlands", keywords: ["borderlands", "tiny tina", "pandora"] }
-  ];
+async function getThemeCatalogForDetection() {
+  try {
+    if (themeCatalogV2Shared?.ensureThemeCatalogV2Storage) {
+      const seeded = await themeCatalogV2Shared.ensureThemeCatalogV2Storage();
+      if (seeded?.catalog?.themes?.length) {
+        return seeded.catalog;
+      }
+    }
+  } catch (error) {
+    // Ignore storage/service worker transient failures and fall back to seeded themes.
+  }
+  if (themeCatalogV2Shared?.normalizeThemeCatalog) {
+    return themeCatalogV2Shared.normalizeThemeCatalog({
+      themes: Array.isArray(themeCatalogV2Shared?.seedThemes)
+        ? themeCatalogV2Shared.seedThemes
+        : []
+    });
+  }
+  return { themes: [] };
+}
 
-  for (const rule of rules) {
-    if (
-      rule.keywords.some((keyword) => {
-        const key = keyword.toLowerCase();
-        const keyCompact = key.replace(/\s+/g, "");
-        return normalized.includes(key) || compact.includes(keyCompact);
-      })
-    ) {
-      return rule.skin;
+function buildThemeDetectionCandidates(theme) {
+  const id = String(theme?.id || "").trim();
+  const name = String(theme?.name || "").trim();
+  const rawPhrases = [id, name]
+    .filter(Boolean)
+    .flatMap((value) => [
+      value,
+      value.replace(/[-_]+/g, " "),
+      value.replace(/[-_\s]+/g, "")
+    ]);
+  const uniquePhrases = Array.from(
+    new Set(
+      rawPhrases
+        .map((value) => normalizeDetectionTextParts(value).normalized)
+        .filter(Boolean)
+    )
+  );
+  const tokenSet = new Set();
+  for (const phrase of uniquePhrases) {
+    for (const token of phrase.split(" ")) {
+      if (token && token.length >= 3) {
+        tokenSet.add(token);
+      }
     }
   }
-  return null;
+  return {
+    id,
+    phrases: uniquePhrases,
+    compactPhrases: uniquePhrases.map((phrase) => phrase.replace(/\s+/g, "")),
+    tokens: Array.from(tokenSet)
+  };
+}
+
+function scoreThemeAgainstText(textParts, theme) {
+  const candidates = buildThemeDetectionCandidates(theme);
+  let score = 0;
+
+  for (let index = 0; index < candidates.phrases.length; index += 1) {
+    const phrase = candidates.phrases[index];
+    const compactPhrase = candidates.compactPhrases[index];
+    if (phrase && textParts.normalized.includes(phrase)) {
+      score = Math.max(score, 100 + phrase.length);
+    }
+    if (compactPhrase && compactPhrase.length >= 4 && textParts.compact.includes(compactPhrase)) {
+      score = Math.max(score, 90 + compactPhrase.length);
+    }
+  }
+
+  let tokenMatches = 0;
+  for (const token of candidates.tokens) {
+    if (textParts.tokens.includes(token)) {
+      tokenMatches += 1;
+    }
+  }
+  if (tokenMatches > 0) {
+    score = Math.max(score, tokenMatches * 10);
+    if (tokenMatches >= 2) {
+      score += 15;
+    }
+  }
+
+  return score;
+}
+
+function detectRaritySkinFromText(text, themeCatalog) {
+  const textParts = normalizeDetectionTextParts(text);
+  if (!textParts.normalized) {
+    return null;
+  }
+  const themes = Array.isArray(themeCatalog?.themes) ? themeCatalog.themes : [];
+  let bestMatch = null;
+  for (const theme of themes) {
+    const themeId = String(theme?.id || "").trim();
+    if (!themeId) {
+      continue;
+    }
+    const score = scoreThemeAgainstText(textParts, theme);
+    if (score <= 0) {
+      continue;
+    }
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { id: themeId, score };
+    }
+  }
+  return bestMatch?.id || null;
 }
 
 async function applyExperimentalGameSkin(tabId, videoId) {
@@ -1063,26 +1183,19 @@ async function applyExperimentalGameSkin(tabId, videoId) {
   }
   try {
     const tab = await chrome.tabs.get(tabId);
+    const themeCatalog = await getThemeCatalogForDetection();
     const metadataResponse = await requestMessage(tabId, {
       type: "detectGameMetadata"
     });
     const metadataText = String(metadataResponse?.gameText || "");
-    let detectedSkin = detectRaritySkinFromText(metadataText);
+    let detectedSkin = detectRaritySkinFromText(metadataText, themeCatalog);
     if (!detectedSkin) {
       const candidates = [tab?.title || "", tab?.url || "", videoId || ""];
       const joined = candidates.join(" ");
-      detectedSkin = detectRaritySkinFromText(joined);
+      detectedSkin = detectRaritySkinFromText(joined, themeCatalog);
     }
     if (!detectedSkin) {
       return;
-    }
-    try {
-      await chrome.storage.sync.set({
-        raritySkin: detectedSkin,
-        activeRaritySkinId: detectedSkin
-      });
-    } catch (error) {
-      // Ignore storage write failures.
     }
     await sendMessage(tabId, { type: "autoRaritySkin", raritySkin: detectedSkin });
   } catch (error) {
@@ -1358,13 +1471,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.routingThreshold,
       message.routingShortCorner,
       message.routingLongCorner,
+      message.showAuthorInNotifications,
       message.showLikesInNotifications,
       message.showUpcomingDot,
+      message.stackOpacityFadeEnabled,
+      message.stackOpacityFadeStart,
+      message.stackOpacityFadeStepPercent,
       hideTimestampOnlyMessages,
       hideMultiTimestampMessages,
       message.hiddenRarityTiersBySkin,
       message.commentScanStartDelaySec,
       lastExperimentalGameSkinAutoEnabled,
+      message.clearTimestampCacheOnRefresh,
       message.showRarityLabelInNotifications,
       message.raritySkin,
       message.rarityLogicMode,

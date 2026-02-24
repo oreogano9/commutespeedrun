@@ -27,8 +27,16 @@ const DEFAULT_ROUTING_ENABLED = false;
 const DEFAULT_ROUTING_THRESHOLD = 80;
 const DEFAULT_ROUTING_SHORT_CORNER = "bottom-left";
 const DEFAULT_ROUTING_LONG_CORNER = "top-right";
+const DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS =
+  settingsSchema?.defaults?.showAuthorInNotifications ?? true;
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
 const DEFAULT_SHOW_UPCOMING_DOT = settingsSchema?.defaults?.showUpcomingDot ?? true;
+const DEFAULT_STACK_OPACITY_FADE_ENABLED =
+  settingsSchema?.defaults?.stackOpacityFadeEnabled ?? true;
+const DEFAULT_STACK_OPACITY_FADE_START =
+  settingsSchema?.defaults?.stackOpacityFadeStart ?? 6;
+const DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT =
+  settingsSchema?.defaults?.stackOpacityFadeStepPercent ?? 20;
 const DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS = true;
 const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES =
   settingsSchema?.defaults?.hideTimestampOnlyMessages ?? true;
@@ -46,6 +54,8 @@ const DEFAULT_COMMENT_FETCH_ADAPTIVE =
   settingsSchema?.defaults?.commentFetchAdaptive ?? true;
 const DEFAULT_LIVE_PAGE_MARKER_UPDATES =
   settingsSchema?.defaults?.livePageMarkerUpdates ?? true;
+const DEFAULT_CLEAR_TIMESTAMP_CACHE_ON_REFRESH =
+  settingsSchema?.defaults?.clearTimestampCacheOnRefresh ?? false;
 const DEFAULT_COMMENT_SCAN_START_DELAY_SEC =
   settingsSchema?.defaults?.commentScanStartDelaySec ?? 3;
 const DEFAULT_PRESET_PROFILE = "balanced";
@@ -92,6 +102,14 @@ const MIN_HEATMAP_INTENSITY = 10;
 const MAX_HEATMAP_INTENSITY = 2000;
 const MIN_ROUTING_THRESHOLD = 1;
 const MAX_ROUTING_THRESHOLD = 5000;
+const MIN_STACK_OPACITY_FADE_START =
+  settingsSchema?.limits?.stackOpacityFadeStart?.min ?? 0;
+const MAX_STACK_OPACITY_FADE_START =
+  settingsSchema?.limits?.stackOpacityFadeStart?.max ?? 50;
+const MIN_STACK_OPACITY_FADE_STEP_PERCENT =
+  settingsSchema?.limits?.stackOpacityFadeStepPercent?.min ?? 0;
+const MAX_STACK_OPACITY_FADE_STEP_PERCENT =
+  settingsSchema?.limits?.stackOpacityFadeStepPercent?.max ?? 25;
 const MIN_COMMENT_FETCH_STARTUP_PAGES =
   settingsSchema?.limits?.commentFetchStartupPages?.min ?? 1;
 const MAX_COMMENT_FETCH_STARTUP_PAGES =
@@ -240,14 +258,12 @@ const PRESET_PROFILES = {
   minimal: {
     overlayScale: 0.95,
     displayDuration: DEFAULT_DISPLAY_DURATION,
-    overlayRadius: 25,
     overlayAvatarSize: 22,
     showLikesInNotifications: false
   },
   balanced: {
     overlayScale: DEFAULT_OVERLAY_SCALE,
     displayDuration: DEFAULT_DISPLAY_DURATION,
-    overlayRadius: DEFAULT_OVERLAY_RADIUS,
     overlayAvatarSize: DEFAULT_OVERLAY_AVATAR_SIZE,
     showLikesInNotifications: true
   }
@@ -262,6 +278,7 @@ const LOCAL_RARITY_CATALOG_REVISION_KEY = rarityShared.LOCAL_CATALOG_REVISION_KE
 const SYNC_ACTIVE_RARITY_SKIN_ID_KEY = rarityShared.SYNC_ACTIVE_SKIN_ID_KEY;
 const SYNC_HIDDEN_RARITY_TIERS_BY_SKIN_ID_KEY =
   rarityShared.SYNC_HIDDEN_TIERS_BY_SKIN_ID_KEY;
+const MINIMAL_MODE_BACKUP_SYNC_KEY = "minimalModeBackupV1";
 let raritySkinCatalog = rarityShared.createBuiltInCatalog();
 let raritySkinCatalogRevision = Date.now();
 
@@ -419,8 +436,12 @@ async function getConfigs() {
       "routingThreshold",
       "routingShortCorner",
       "routingLongCorner",
+      "showAuthorInNotifications",
       "showLikesInNotifications",
       "showUpcomingDot",
+      "stackOpacityFadeEnabled",
+      "stackOpacityFadeStart",
+      "stackOpacityFadeStepPercent",
       "hideTimestampOnlyMessages",
       "hideMultiTimestampMessages",
       "hiddenRarityTiersBySkin",
@@ -433,6 +454,7 @@ async function getConfigs() {
       "commentFetchAdaptive",
       "commentScanStartDelaySec",
       "livePageMarkerUpdates",
+      "clearTimestampCacheOnRefresh",
       "raritySkin",
       "activeRaritySkinId",
       "rarityLogicMode",
@@ -560,6 +582,12 @@ async function getConfigs() {
   const presetProfile = normalizePresetProfile(
     String(storedSync?.presetProfile ?? DEFAULT_PRESET_PROFILE)
   );
+  const showAuthorInNotifications =
+    presetProfile === "minimal"
+      ? false
+      : Boolean(
+          storedSync?.showAuthorInNotifications ?? DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS
+        );
   const showLikesInNotifications =
     presetProfile === "minimal"
       ? false
@@ -575,6 +603,22 @@ async function getConfigs() {
         );
   const showUpcomingDot = Boolean(
     storedSync?.showUpcomingDot ?? DEFAULT_SHOW_UPCOMING_DOT
+  );
+  const stackOpacityFadeEnabled = Boolean(
+    storedSync?.stackOpacityFadeEnabled ?? DEFAULT_STACK_OPACITY_FADE_ENABLED
+  );
+  const stackOpacityFadeStart = clamp(
+    Number(storedSync?.stackOpacityFadeStart ?? DEFAULT_STACK_OPACITY_FADE_START),
+    MIN_STACK_OPACITY_FADE_START,
+    MAX_STACK_OPACITY_FADE_START
+  );
+  const stackOpacityFadeStepPercent = clamp(
+    Number(
+      storedSync?.stackOpacityFadeStepPercent ??
+        DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT
+    ),
+    MIN_STACK_OPACITY_FADE_STEP_PERCENT,
+    MAX_STACK_OPACITY_FADE_STEP_PERCENT
   );
   const hideTimestampOnlyMessages = Boolean(
     storedSync?.hideTimestampOnlyMessages ?? DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES
@@ -616,6 +660,10 @@ async function getConfigs() {
   );
   const livePageMarkerUpdates = Boolean(
     storedSync?.livePageMarkerUpdates ?? DEFAULT_LIVE_PAGE_MARKER_UPDATES
+  );
+  const clearTimestampCacheOnRefresh = Boolean(
+    storedSync?.clearTimestampCacheOnRefresh ??
+      DEFAULT_CLEAR_TIMESTAMP_CACHE_ON_REFRESH
   );
   const requestedSkinId = String(
     storedSync?.[SYNC_ACTIVE_RARITY_SKIN_ID_KEY] ??
@@ -666,8 +714,12 @@ async function getConfigs() {
     routingThreshold,
     routingShortCorner,
     routingLongCorner,
+    showAuthorInNotifications,
     showLikesInNotifications,
     showUpcomingDot,
+    stackOpacityFadeEnabled,
+    stackOpacityFadeStart,
+    stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
@@ -679,6 +731,7 @@ async function getConfigs() {
     commentFetchAdaptive,
     commentScanStartDelaySec,
     livePageMarkerUpdates,
+    clearTimestampCacheOnRefresh,
     showRarityLabelInNotifications,
     raritySkin,
     [SYNC_ACTIVE_RARITY_SKIN_ID_KEY]: raritySkin,
@@ -739,8 +792,12 @@ async function getConfigs() {
     routingThreshold,
     routingShortCorner,
     routingLongCorner,
+    showAuthorInNotifications,
     showLikesInNotifications,
     showUpcomingDot,
+    stackOpacityFadeEnabled,
+    stackOpacityFadeStart,
+    stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
@@ -751,6 +808,7 @@ async function getConfigs() {
     commentFetchAdaptive,
     commentScanStartDelaySec,
     livePageMarkerUpdates,
+    clearTimestampCacheOnRefresh,
     showRarityLabelInNotifications,
     raritySkin,
     rarityLogicMode,
@@ -833,6 +891,10 @@ function applySettingHoverDescriptions() {
     "darkness-slider": {
       name: "Overlay darkness",
       description: "Controls background darkness behind notification text."
+    },
+    "show-author-toggle": {
+      name: "Show username in notifications",
+      description: "Shows the comment author before likes/tier in the notification metadata line."
     },
     "reverse-stack-toggle": {
       name: "Reverse stack order",
@@ -992,8 +1054,12 @@ async function broadcastOverlaySettings({
   routingThreshold,
   routingShortCorner,
   routingLongCorner,
+  showAuthorInNotifications,
   showLikesInNotifications,
   showUpcomingDot,
+  stackOpacityFadeEnabled,
+  stackOpacityFadeStart,
+  stackOpacityFadeStepPercent,
   hideTimestampOnlyMessages,
   hideMultiTimestampMessages,
   hiddenRarityTiersBySkin,
@@ -1004,6 +1070,7 @@ async function broadcastOverlaySettings({
   commentFetchAdaptive,
   commentScanStartDelaySec,
   livePageMarkerUpdates,
+  clearTimestampCacheOnRefresh,
   showRarityLabelInNotifications,
   raritySkin,
   rarityLogicMode,
@@ -1039,8 +1106,12 @@ async function broadcastOverlaySettings({
     routingThreshold,
     routingShortCorner,
     routingLongCorner,
+    showAuthorInNotifications,
     showLikesInNotifications,
     showUpcomingDot,
+    stackOpacityFadeEnabled,
+    stackOpacityFadeStart,
+    stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
     hiddenRarityTiersBySkin,
@@ -1052,6 +1123,7 @@ async function broadcastOverlaySettings({
     commentFetchAdaptive,
     commentScanStartDelaySec,
     livePageMarkerUpdates,
+    clearTimestampCacheOnRefresh,
     showRarityLabelInNotifications,
     raritySkin,
     activeRaritySkinId: raritySkin,
@@ -1151,9 +1223,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   const routingThresholdInput = document.getElementById("routing-threshold-input");
   const routingShortCornerSelect = document.getElementById("routing-short-corner-select");
   const routingLongCornerSelect = document.getElementById("routing-long-corner-select");
+  const showAuthorToggle = document.getElementById("show-author-toggle");
   const showLikesToggle = document.getElementById("show-likes-toggle");
   const showRarityLabelToggle = document.getElementById("show-rarity-label-toggle");
   const showUpcomingDotToggle = document.getElementById("show-upcoming-dot-toggle");
+  const stackOpacityFadeToggle = document.getElementById("stack-opacity-fade-toggle");
+  const stackOpacityFadeStartInput = document.getElementById("stack-opacity-fade-start-input");
+  const stackOpacityFadeStepInput = document.getElementById("stack-opacity-fade-step-input");
   const experimentalGameSkinToggle = document.getElementById("experimental-game-skin-toggle");
   const commentFetchStartupPagesInput = document.getElementById("comment-fetch-startup-pages-input");
   const commentScanDelayInput = document.getElementById("comment-scan-delay-input");
@@ -1161,6 +1237,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const commentFetchAggressiveToggle = document.getElementById("comment-fetch-aggressive-toggle");
   const commentFetchAdaptiveToggle = document.getElementById("comment-fetch-adaptive-toggle");
   const livePageMarkersToggle = document.getElementById("live-page-markers-toggle");
+  const clearCacheOnRefreshToggle = document.getElementById("clear-cache-on-refresh-toggle");
   const copySettingsButton = document.getElementById("copy-settings-button");
   const copySettingsStatus = document.getElementById("copy-settings-status");
   const copyDebugTierListButton = document.getElementById("copy-debug-tier-list-button");
@@ -1336,9 +1413,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   routingThresholdInput.value = String(configs.routingThreshold);
   routingShortCornerSelect.value = configs.routingShortCorner;
   routingLongCornerSelect.value = configs.routingLongCorner;
+  showAuthorToggle.checked = configs.showAuthorInNotifications;
   showLikesToggle.checked = configs.showLikesInNotifications;
   showRarityLabelToggle.checked = configs.showRarityLabelInNotifications;
   showUpcomingDotToggle.checked = configs.showUpcomingDot;
+  stackOpacityFadeToggle.checked = configs.stackOpacityFadeEnabled;
+  stackOpacityFadeStartInput.value = String(configs.stackOpacityFadeStart);
+  stackOpacityFadeStepInput.value = String(configs.stackOpacityFadeStepPercent);
   experimentalGameSkinToggle.checked = configs.experimentalGameSkinAutoEnabled;
   commentFetchStartupPagesInput.value = String(configs.commentFetchStartupPages);
   commentScanDelayInput.value = String(configs.commentScanStartDelaySec);
@@ -1346,6 +1427,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   commentFetchAggressiveToggle.checked = configs.commentFetchAggressive;
   commentFetchAdaptiveToggle.checked = configs.commentFetchAdaptive;
   livePageMarkersToggle.checked = configs.livePageMarkerUpdates;
+  clearCacheOnRefreshToggle.checked = configs.clearTimestampCacheOnRefresh;
   minimalModeToggle.checked = configs.presetProfile === "minimal";
   showRarityLabelToggle.disabled = configs.presetProfile === "minimal";
   priorityLikesWeightInput.disabled = !configs.priorityScoringEnabled;
@@ -1353,6 +1435,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   routingThresholdInput.disabled = !configs.routingEnabled;
   routingShortCornerSelect.disabled = !configs.routingEnabled;
   routingLongCornerSelect.disabled = !configs.routingEnabled;
+  stackOpacityFadeStartInput.disabled = !configs.stackOpacityFadeEnabled;
+  stackOpacityFadeStepInput.disabled = !configs.stackOpacityFadeEnabled;
   document.body.classList.toggle("dark-mode", configs.popupDarkMode);
   applySettingHoverDescriptions();
 
@@ -1793,11 +1877,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       MIN_DISPLAY_DURATION,
       MAX_DISPLAY_DURATION
     );
-    const presetRadius = clamp(
-      Number(preset.overlayRadius ?? DEFAULT_OVERLAY_RADIUS),
-      MIN_OVERLAY_RADIUS,
-      MAX_OVERLAY_RADIUS
-    );
     const presetAvatar = clamp(
       Number(preset.overlayAvatarSize ?? DEFAULT_OVERLAY_AVATAR_SIZE),
       MIN_OVERLAY_AVATAR_SIZE,
@@ -1809,9 +1888,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     sizeSlider.value = String(Math.round(presetScale * 100));
     durationSlider.value = String(presetDuration);
-    radiusSlider.value = String(Math.round(presetRadius));
     avatarSizeSlider.value = String(Math.round(presetAvatar));
-    overlayRadiusBySkin[selectedRaritySkin] = presetRadius;
     showLikesToggle.checked = getPresetShowLikesDefault(profileKey);
 
     updateSizeLabel(sizeSlider, sizeValue);
@@ -2057,6 +2134,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       routingLongCornerSelect.value || DEFAULT_ROUTING_LONG_CORNER
     );
     const presetProfile = minimalModeToggle.checked ? "minimal" : "balanced";
+    const showAuthorInNotifications =
+      presetProfile === "minimal" ? false : Boolean(showAuthorToggle.checked);
     const showLikesInNotifications =
       presetProfile === "minimal"
         ? false
@@ -2066,6 +2145,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         ? false
         : Boolean(showRarityLabelToggle.checked);
     const showUpcomingDot = Boolean(showUpcomingDotToggle.checked);
+    const stackOpacityFadeEnabled = Boolean(stackOpacityFadeToggle.checked);
+    const stackOpacityFadeStart = clamp(
+      Number(stackOpacityFadeStartInput.value || DEFAULT_STACK_OPACITY_FADE_START),
+      MIN_STACK_OPACITY_FADE_START,
+      MAX_STACK_OPACITY_FADE_START
+    );
+    const stackOpacityFadeStepPercent = clamp(
+      Number(stackOpacityFadeStepInput.value || DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT),
+      MIN_STACK_OPACITY_FADE_STEP_PERCENT,
+      MAX_STACK_OPACITY_FADE_STEP_PERCENT
+    );
     const experimentalGameSkinAutoEnabled = Boolean(
       experimentalGameSkinToggle.checked
     );
@@ -2087,9 +2177,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     const commentFetchAggressive = Boolean(commentFetchAggressiveToggle.checked);
     const commentFetchAdaptive = Boolean(commentFetchAdaptiveToggle.checked);
     const livePageMarkerUpdates = Boolean(livePageMarkersToggle.checked);
+    const clearTimestampCacheOnRefresh = Boolean(clearCacheOnRefreshToggle.checked);
     commentFetchStartupPagesInput.value = String(commentFetchStartupPages);
     commentScanDelayInput.value = String(commentScanStartDelaySec);
     commentFetchMaxPagesInput.value = String(commentFetchMaxPages);
+    stackOpacityFadeStartInput.value = String(stackOpacityFadeStart);
+    stackOpacityFadeStepInput.value = String(stackOpacityFadeStepPercent);
+    stackOpacityFadeStartInput.disabled = !stackOpacityFadeEnabled;
+    stackOpacityFadeStepInput.disabled = !stackOpacityFadeEnabled;
     showLikesToggle.checked = showLikesInNotifications;
     showRarityLabelToggle.checked = showRarityLabelInNotifications;
     showRarityLabelToggle.disabled = presetProfile === "minimal";
@@ -2143,9 +2238,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       routingThreshold,
       routingShortCorner,
       routingLongCorner,
+      showAuthorInNotifications,
       showLikesInNotifications,
       showRarityLabelInNotifications,
       showUpcomingDot,
+      stackOpacityFadeEnabled,
+      stackOpacityFadeStart,
+      stackOpacityFadeStepPercent,
       hideTimestampOnlyMessages,
       hideMultiTimestampMessages,
       hiddenRarityTiersBySkin: hiddenBySkinId,
@@ -2157,6 +2256,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       commentFetchAggressive,
       commentFetchAdaptive,
       livePageMarkerUpdates,
+      clearTimestampCacheOnRefresh,
       activeRaritySkinId: raritySkin,
       presetProfile
     };
@@ -2254,11 +2354,24 @@ document.addEventListener("DOMContentLoaded", async () => {
       routingLongCornerSelect.value || DEFAULT_ROUTING_LONG_CORNER
     );
     const presetProfile = minimalModeToggle.checked ? "minimal" : "balanced";
+    const showAuthorInNotifications =
+      presetProfile === "minimal" ? false : Boolean(showAuthorToggle.checked);
     const showLikesInNotifications =
       presetProfile === "minimal" ? false : Boolean(showLikesToggle.checked);
     const showRarityLabelInNotifications =
       presetProfile === "minimal" ? false : Boolean(showRarityLabelToggle.checked);
     const showUpcomingDot = Boolean(showUpcomingDotToggle.checked);
+    const stackOpacityFadeEnabled = Boolean(stackOpacityFadeToggle.checked);
+    const stackOpacityFadeStart = clamp(
+      Number(stackOpacityFadeStartInput.value || DEFAULT_STACK_OPACITY_FADE_START),
+      MIN_STACK_OPACITY_FADE_START,
+      MAX_STACK_OPACITY_FADE_START
+    );
+    const stackOpacityFadeStepPercent = clamp(
+      Number(stackOpacityFadeStepInput.value || DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT),
+      MIN_STACK_OPACITY_FADE_STEP_PERCENT,
+      MAX_STACK_OPACITY_FADE_STEP_PERCENT
+    );
     const experimentalGameSkinAutoEnabled = Boolean(
       experimentalGameSkinToggle.checked
     );
@@ -2280,6 +2393,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const commentFetchAggressive = Boolean(commentFetchAggressiveToggle.checked);
     const commentFetchAdaptive = Boolean(commentFetchAdaptiveToggle.checked);
     const livePageMarkerUpdates = Boolean(livePageMarkersToggle.checked);
+    const clearTimestampCacheOnRefresh = Boolean(clearCacheOnRefreshToggle.checked);
     const popupDarkMode = Boolean(popupDarkToggle.checked);
     const isActive = toggleButton.classList.contains("toggle_active");
     const selectedPosition =
@@ -2319,9 +2433,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       routingThreshold,
       routingShortCorner,
       routingLongCorner,
+      showAuthorInNotifications,
       showLikesInNotifications,
       showRarityLabelInNotifications,
       showUpcomingDot,
+      stackOpacityFadeEnabled,
+      stackOpacityFadeStart,
+      stackOpacityFadeStepPercent,
       hideTimestampOnlyMessages,
       hideMultiTimestampMessages,
       hiddenRarityTiersBySkin: normalizeHiddenRarityTiersBySkin(hiddenRarityTiersBySkin),
@@ -2333,6 +2451,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       commentFetchAggressive,
       commentFetchAdaptive,
       livePageMarkerUpdates,
+      clearTimestampCacheOnRefresh,
       popupDarkMode,
       presetProfile,
       activeRaritySkinId: raritySkin,
@@ -2414,8 +2533,73 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   async function applySelectedPresetAndSave() {
-    const presetProfile = minimalModeToggle.checked ? "minimal" : "balanced";
-    applyPresetToControls(presetProfile);
+    const enteringMinimal = Boolean(minimalModeToggle.checked);
+    const presetProfile = enteringMinimal ? "minimal" : "balanced";
+    let shouldClearMinimalBackup = false;
+
+    if (enteringMinimal) {
+      const currentScale = clamp(
+        Number(sizeSlider.value || DEFAULT_OVERLAY_SCALE * 100) / 100,
+        MIN_OVERLAY_SCALE,
+        MAX_OVERLAY_SCALE
+      );
+      const currentAvatarSize = clamp(
+        Number(avatarSizeSlider.value || DEFAULT_OVERLAY_AVATAR_SIZE),
+        MIN_OVERLAY_AVATAR_SIZE,
+        MAX_OVERLAY_AVATAR_SIZE
+      );
+      const minimalBackup = {
+        overlayScale: currentScale,
+        overlayAvatarSize: currentAvatarSize,
+        showAuthorInNotifications: Boolean(showAuthorToggle.checked),
+        showLikesInNotifications: Boolean(showLikesToggle.checked),
+        showRarityLabelInNotifications: Boolean(showRarityLabelToggle.checked)
+      };
+      try {
+        await chrome.storage.sync.set({ [MINIMAL_MODE_BACKUP_SYNC_KEY]: minimalBackup });
+      } catch (error) {
+        // Ignore backup write failures; minimal mode still applies.
+      }
+
+      const minimalScale = clamp(currentScale - 0.1, MIN_OVERLAY_SCALE, MAX_OVERLAY_SCALE);
+      sizeSlider.value = String(Math.round(minimalScale * 100));
+      avatarSizeSlider.value = "22";
+      showAuthorToggle.checked = false;
+      showLikesToggle.checked = false;
+      showRarityLabelToggle.checked = false;
+    } else {
+      try {
+        const backupState = await chrome.storage.sync.get([MINIMAL_MODE_BACKUP_SYNC_KEY]);
+        const minimalBackup = backupState?.[MINIMAL_MODE_BACKUP_SYNC_KEY];
+        if (minimalBackup && typeof minimalBackup === "object") {
+          const restoredScale = clamp(
+            Number(minimalBackup.overlayScale ?? DEFAULT_OVERLAY_SCALE),
+            MIN_OVERLAY_SCALE,
+            MAX_OVERLAY_SCALE
+          );
+          const restoredAvatarSize = clamp(
+            Number(minimalBackup.overlayAvatarSize ?? DEFAULT_OVERLAY_AVATAR_SIZE),
+            MIN_OVERLAY_AVATAR_SIZE,
+            MAX_OVERLAY_AVATAR_SIZE
+          );
+          sizeSlider.value = String(Math.round(restoredScale * 100));
+          avatarSizeSlider.value = String(Math.round(restoredAvatarSize));
+          showAuthorToggle.checked = Boolean(
+            minimalBackup.showAuthorInNotifications ?? DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS
+          );
+          showLikesToggle.checked = Boolean(
+            minimalBackup.showLikesInNotifications ?? DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS
+          );
+          showRarityLabelToggle.checked = Boolean(
+            minimalBackup.showRarityLabelInNotifications ??
+              DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS
+          );
+          shouldClearMinimalBackup = true;
+        }
+      } catch (error) {
+        // Ignore backup read failures and keep current control values.
+      }
+    }
 
     const overlayScale = clamp(
       Number(sizeSlider.value || DEFAULT_OVERLAY_SCALE * 100) / 100,
@@ -2438,40 +2622,31 @@ document.addEventListener("DOMContentLoaded", async () => {
       MIN_OVERLAY_AVATAR_SIZE,
       MAX_OVERLAY_AVATAR_SIZE
     );
-    const showLikesInNotifications = getPresetShowLikesDefault(presetProfile);
+    const showAuthorInNotifications =
+      presetProfile === "minimal" ? false : Boolean(showAuthorToggle.checked);
+    const showLikesInNotifications =
+      presetProfile === "minimal" ? false : Boolean(showLikesToggle.checked);
     const showRarityLabelInNotifications =
       presetProfile === "minimal"
         ? false
         : Boolean(showRarityLabelToggle.checked);
+    showAuthorToggle.checked = showAuthorInNotifications;
     showLikesToggle.checked = showLikesInNotifications;
     showRarityLabelToggle.checked = showRarityLabelInNotifications;
     showRarityLabelToggle.disabled = presetProfile === "minimal";
+    updateSizeLabel(sizeSlider, sizeValue);
+    updateAvatarSizeLabel(avatarSizeSlider, avatarSizeValue);
     renderLiveNotificationPreview();
 
-    const presetSettings = {
-      overlayScale,
-      displayDuration,
-      overlayRadius,
-      overlayRadiusBySkin: {
-        ...overlayRadiusBySkin,
-        [selectedRaritySkin]: overlayRadius
-      },
-      overlayAvatarSize,
-      showLikesInNotifications,
-      showRarityLabelInNotifications,
-      activeRaritySkinId: selectedRaritySkin,
-      presetProfile
-    };
     overlayRadiusBySkin[selectedRaritySkin] = overlayRadius;
-
-    await chrome.storage.sync.set(presetSettings);
-    await syncThemeRadiusFromDisplaySlider(selectedRaritySkin, overlayRadius);
-    await broadcastOverlaySettings({
-      ...presetSettings,
-      raritySkin: selectedRaritySkin,
-      activeRaritySkinConfig: rarityShared.deepClone(getSkinConfigById(selectedRaritySkin)),
-      raritySkinCatalogRevision
-    });
+    await saveOverlaySettings();
+    if (shouldClearMinimalBackup) {
+      try {
+        await chrome.storage.sync.remove(MINIMAL_MODE_BACKUP_SYNC_KEY);
+      } catch (error) {
+        // Ignore backup cleanup failures.
+      }
+    }
   }
 
   sizeSlider.addEventListener("change", saveOverlaySettings);
@@ -2509,7 +2684,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   routingThresholdInput.addEventListener("change", saveOverlaySettings);
   routingShortCornerSelect.addEventListener("change", saveOverlaySettings);
   routingLongCornerSelect.addEventListener("change", saveOverlaySettings);
+  showAuthorToggle.addEventListener("change", saveOverlaySettings);
   showUpcomingDotToggle.addEventListener("change", saveOverlaySettings);
+  stackOpacityFadeToggle.addEventListener("change", saveOverlaySettings);
+  stackOpacityFadeStartInput.addEventListener("change", saveOverlaySettings);
+  stackOpacityFadeStepInput.addEventListener("change", saveOverlaySettings);
   experimentalGameSkinToggle.addEventListener("change", saveOverlaySettings);
   commentFetchStartupPagesInput.addEventListener("change", saveOverlaySettings);
   commentScanDelayInput.addEventListener("change", saveOverlaySettings);
@@ -2517,6 +2696,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   commentFetchAggressiveToggle.addEventListener("change", saveOverlaySettings);
   commentFetchAdaptiveToggle.addEventListener("change", saveOverlaySettings);
   livePageMarkersToggle.addEventListener("change", saveOverlaySettings);
+  clearCacheOnRefreshToggle.addEventListener("change", saveOverlaySettings);
   const bindRealtime = (element, handler) => {
     element.addEventListener("input", handler);
     element.addEventListener("change", handler);
@@ -2547,10 +2727,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   bindRealtime(reverseStackToggle, saveOverlaySettings);
+  bindRealtime(showAuthorToggle, saveOverlaySettings);
   bindRealtime(showLikesToggle, saveOverlaySettings);
   bindRealtime(priorityScoringToggle, saveOverlaySettings);
   bindRealtime(showRarityLabelToggle, saveOverlaySettings);
   bindRealtime(popularityModeToggle, saveOverlaySettings);
+  bindRealtime(stackOpacityFadeToggle, saveOverlaySettings);
+  bindRealtime(stackOpacityFadeStartInput, saveOverlaySettings);
+  bindRealtime(stackOpacityFadeStepInput, saveOverlaySettings);
   bindRealtime(raritySkinSelect, async () => {
     const selectedSkin = normalizeRaritySkin(raritySkinSelect.value);
     const selectedRadius = normalizeRadiusValue(

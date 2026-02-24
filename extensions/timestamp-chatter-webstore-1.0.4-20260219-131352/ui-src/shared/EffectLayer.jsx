@@ -9,7 +9,7 @@ const CSS_EFFECTS = new Set([
 export function EffectLayer({ effect, color, bodyColor }) {
   const galaxyStars = useMemo(() => {
     if (effect !== 'galaxy') return [];
-    return Array.from({ length: 60 }, (_, i) => ({
+    return Array.from({ length: 180 }, (_, i) => ({
       key: i,
       top: `${Math.random() * 100}%`,
       left: `${Math.random() * 100}%`,

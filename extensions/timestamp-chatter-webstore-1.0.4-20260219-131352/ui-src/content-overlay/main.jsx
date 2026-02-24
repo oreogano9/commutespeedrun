@@ -63,10 +63,46 @@ function phaseClass(phase) {
   return '';
 }
 
-function LaneCards({ cards, runtimeConfig, onCardClick }) {
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getStackCardOpacity(stackIndexFromAnchor, runtimeConfig) {
+  const fadeEnabled = runtimeConfig?.stackOpacityFadeEnabled !== false;
+  if (!fadeEnabled) {
+    return 1;
+  }
+  const fadeStart = clampNumber(
+    Number(runtimeConfig?.stackOpacityFadeStart ?? 6),
+    0,
+    50
+  );
+  const stepPercent = clampNumber(
+    Number(runtimeConfig?.stackOpacityFadeStepPercent ?? 20),
+    0,
+    25
+  );
+  if (stackIndexFromAnchor < fadeStart || stepPercent <= 0) {
+    return 1;
+  }
+  const steps = stackIndexFromAnchor - fadeStart + 1;
+  const cumulativePercentDrop =
+    (steps * stepPercent) + ((steps - 1) * steps) / 2;
+  return clampNumber(1 - cumulativePercentDrop / 100, 0, 1);
+}
+
+function getAnchorStackIndex(index, total, laneKey) {
+  const isBottomLane = laneKey === 'bottom-left' || laneKey === 'bottom-right';
+  if (isBottomLane) {
+    return Math.max(0, total - 1 - index);
+  }
+  return index;
+}
+
+function LaneCards({ laneKey, cards, runtimeConfig, onCardClick }) {
   return (
     <>
-      {cards.map((entry) => (
+      {cards.map((entry, index) => (
         <div
           key={entry.id}
           className={[
@@ -76,7 +112,13 @@ function LaneCards({ cards, runtimeConfig, onCardClick }) {
             entry.accentClass || '',
             entry.rubberbandPulse ? 'accent-rubberband' : ''
           ].filter(Boolean).join(' ')}
-          style={{ order: String(entry.order ?? 0) }}
+          style={{
+            order: String(entry.order ?? 0),
+            opacity: getStackCardOpacity(
+              getAnchorStackIndex(index, cards.length, laneKey),
+              runtimeConfig
+            )
+          }}
         >
           <NotificationCard
             mode="live"

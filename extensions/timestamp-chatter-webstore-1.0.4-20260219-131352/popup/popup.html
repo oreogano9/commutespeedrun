@@ -923,6 +923,20 @@
                   <span class="mini-switch-slider"></span>
                 </label>
               </div>
+              <div class="setting-toggle-row">
+                <label for="show-author-toggle">Show username in notifications</label>
+                <label class="mini-switch" for="show-author-toggle">
+                  <input id="show-author-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="show-rarity-label-toggle">Show tier in notifications</label>
+                <label class="mini-switch" for="show-rarity-label-toggle">
+                  <input id="show-rarity-label-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
             </div>
           </section>
 
@@ -982,13 +996,6 @@
                 <label for="priority-scoring-toggle">Priority scoring</label>
                 <label class="mini-switch" for="priority-scoring-toggle">
                   <input id="priority-scoring-toggle" type="checkbox" />
-                  <span class="mini-switch-slider"></span>
-                </label>
-              </div>
-              <div class="setting-toggle-row">
-                <label for="show-rarity-label-toggle">Show rarity label in notifications</label>
-                <label class="mini-switch" for="show-rarity-label-toggle">
-                  <input id="show-rarity-label-toggle" type="checkbox" />
                   <span class="mini-switch-slider"></span>
                 </label>
               </div>
@@ -1152,6 +1159,13 @@
                 </button>
                 <small id="rescan-now-status" class="setting-hint"></small>
               </div>
+              <div class="setting-toggle-row">
+                <label for="clear-cache-on-refresh-toggle">Clear timestamp cache on refresh</label>
+                <label class="mini-switch" for="clear-cache-on-refresh-toggle">
+                  <input id="clear-cache-on-refresh-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
             </div>
 
             <div class="settings-section">
@@ -1197,6 +1211,23 @@
                   <input id="show-upcoming-dot-toggle" type="checkbox" />
                   <span class="mini-switch-slider"></span>
                 </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="stack-opacity-fade-toggle">Stack opacity fade</label>
+                <label class="mini-switch" for="stack-opacity-fade-toggle">
+                  <input id="stack-opacity-fade-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <label for="stack-opacity-fade-start-input">Stack opacity fade start</label>
+                <input class="setting-number" id="stack-opacity-fade-start-input" type="number" min="0" max="50" step="1" value="6" />
+                <small class="setting-hint">Start fading after this many on-screen notifications per stack.</small>
+              </div>
+              <div class="setting-row">
+                <label for="stack-opacity-fade-step-input">Opacity fade step (%)</label>
+                <input class="setting-number" id="stack-opacity-fade-step-input" type="number" min="0" max="25" step="1" value="20" />
+                <small class="setting-hint">Decrease opacity by this amount for each extra notification.</small>
               </div>
               <div class="setting-toggle-row">
                 <label for="experimental-game-skin-toggle">Auto game skin (experimental)</label>

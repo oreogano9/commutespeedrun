@@ -29,8 +29,12 @@
     routingThreshold: 80,
     routingShortCorner: "bottom-left",
     routingLongCorner: "top-right",
+    showAuthorInNotifications: true,
     showLikesInNotifications: true,
     showUpcomingDot: true,
+    stackOpacityFadeEnabled: true,
+    stackOpacityFadeStart: 6,
+    stackOpacityFadeStepPercent: 20,
     showRarityLabelInNotifications: true,
     hideTimestampOnlyMessages: true,
     hideMultiTimestampMessages: true,
@@ -40,6 +44,7 @@
     commentFetchAggressive: false,
     commentFetchAdaptive: true,
     livePageMarkerUpdates: true,
+    clearTimestampCacheOnRefresh: false,
     commentScanStartDelaySec: 3,
     presetProfile: "balanced",
     raritySkin: "default",
@@ -63,6 +68,8 @@
     priorityLikesWeight: Object.freeze({ min: 0, max: 5 }),
     topLikedThresholdPercent: Object.freeze({ min: 1, max: 50 }),
     routingThreshold: Object.freeze({ min: 1, max: 5000 }),
+    stackOpacityFadeStart: Object.freeze({ min: 0, max: 50 }),
+    stackOpacityFadeStepPercent: Object.freeze({ min: 0, max: 25 }),
     rarityGeometricRatio: Object.freeze({ min: 1.05, max: 3.0 })
   });
 
@@ -123,4 +130,3 @@
 
   globalScope.TimestampChatterSettingsSchema = schema;
 })(globalThis);
-
