@@ -10,9 +10,11 @@ const DEFAULT_OVERLAY_GLASSINESS = 20;
 const DEFAULT_OVERLAY_DARKNESS = 90;
 const DEFAULT_DEBUG_MODE = false;
 const DEFAULT_ALLOW_LONG_MESSAGES = false;
-const DEFAULT_MAX_MESSAGE_CHARS = 300;
+const DEFAULT_MAX_MESSAGE_CHARS = settingsSchema?.defaults?.maxMessageChars ?? 200;
 const DEFAULT_EARLY_MODE_ENABLED = false;
 const DEFAULT_FOLLOW_PLAYBACK_SPEED = true;
+const DEFAULT_CLICK_BACK_CONTEXT_SECONDS =
+  settingsSchema?.defaults?.clickBackContextSeconds ?? 5;
 const DEFAULT_EARLY_SECONDS = 5;
 const DEFAULT_TIMESTAMP_ACCENT_EFFECT = "rubberband";
 const DEFAULT_REVERSE_STACK_ORDER = false;
@@ -20,13 +22,8 @@ const DEFAULT_POPUP_DARK_MODE = settingsSchema?.defaults?.popupDarkMode ?? true;
 const DEFAULT_PRIORITY_SCORING_ENABLED = true;
 const DEFAULT_PRIORITY_LIKES_WEIGHT = 1;
 const DEFAULT_TOP_LIKED_THRESHOLD_PERCENT = 12;
-const DEFAULT_POPULARITY_MODE_ENABLED = true;
 const DEFAULT_HEATMAP_ENABLED = settingsSchema?.defaults?.heatmapEnabled ?? true;
 const DEFAULT_HEATMAP_INTENSITY = 500;
-const DEFAULT_ROUTING_ENABLED = false;
-const DEFAULT_ROUTING_THRESHOLD = 80;
-const DEFAULT_ROUTING_SHORT_CORNER = "bottom-left";
-const DEFAULT_ROUTING_LONG_CORNER = "top-right";
 const DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS =
   settingsSchema?.defaults?.showAuthorInNotifications ?? true;
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
@@ -43,7 +40,7 @@ const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES =
 const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES =
   settingsSchema?.defaults?.hideMultiTimestampMessages ?? true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED =
-  settingsSchema?.defaults?.experimentalGameSkinAutoEnabled ?? true;
+  settingsSchema?.defaults?.experimentalGameSkinAutoEnabled ?? false;
 const DEFAULT_COMMENT_FETCH_STARTUP_PAGES =
   settingsSchema?.defaults?.commentFetchStartupPages ?? 1;
 const DEFAULT_COMMENT_FETCH_MAX_PAGES =
@@ -62,6 +59,7 @@ const DEFAULT_PRESET_PROFILE = "balanced";
 const DEFAULT_RARITY_SKIN = "default";
 const DEFAULT_RARITY_LOGIC_MODE = "geometric";
 const DEFAULT_RARITY_GEOMETRIC_RATIO = 2.23;
+const APPEARANCE_LOCAL_MODIFIERS_MIGRATION_KEY = "appearanceLocalModifiersV1Migrated";
 const MIN_GOLD_TIER_LIKES = 15;
 const MIN_PLATINUM_TIER_LIKES = 28;
 const MIN_PLATINUM_TIER_GAP_FROM_GOLD = 8;
@@ -94,14 +92,16 @@ const MIN_MAX_MESSAGE_CHARS = settingsSchema?.limits?.maxMessageChars?.min ?? 1;
 const MAX_MAX_MESSAGE_CHARS = settingsSchema?.limits?.maxMessageChars?.max ?? 5000;
 const MIN_EARLY_SECONDS = 0;
 const MAX_EARLY_SECONDS = 60;
+const MIN_CLICK_BACK_CONTEXT_SECONDS =
+  settingsSchema?.limits?.clickBackContextSeconds?.min ?? 0;
+const MAX_CLICK_BACK_CONTEXT_SECONDS =
+  settingsSchema?.limits?.clickBackContextSeconds?.max ?? 30;
 const MIN_PRIORITY_LIKES_WEIGHT = 0;
 const MAX_PRIORITY_LIKES_WEIGHT = 5;
 const MIN_TOP_LIKED_THRESHOLD_PERCENT = 1;
 const MAX_TOP_LIKED_THRESHOLD_PERCENT = 50;
 const MIN_HEATMAP_INTENSITY = 10;
 const MAX_HEATMAP_INTENSITY = 2000;
-const MIN_ROUTING_THRESHOLD = 1;
-const MAX_ROUTING_THRESHOLD = 5000;
 const MIN_STACK_OPACITY_FADE_START =
   settingsSchema?.limits?.stackOpacityFadeStart?.min ?? 0;
 const MAX_STACK_OPACITY_FADE_START =
@@ -110,6 +110,10 @@ const MIN_STACK_OPACITY_FADE_STEP_PERCENT =
   settingsSchema?.limits?.stackOpacityFadeStepPercent?.min ?? 0;
 const MAX_STACK_OPACITY_FADE_STEP_PERCENT =
   settingsSchema?.limits?.stackOpacityFadeStepPercent?.max ?? 25;
+const STACK_FADE_INTENSITY_MIN_START = 2;
+const STACK_FADE_INTENSITY_MAX_START = 10;
+const STACK_FADE_INTENSITY_MIN_STEP = 5;
+const STACK_FADE_INTENSITY_MAX_STEP = 25;
 const MIN_COMMENT_FETCH_STARTUP_PAGES =
   settingsSchema?.limits?.commentFetchStartupPages?.min ?? 1;
 const MAX_COMMENT_FETCH_STARTUP_PAGES =
@@ -124,6 +128,13 @@ const MAX_COMMENT_SCAN_START_DELAY_SEC =
   settingsSchema?.limits?.commentScanStartDelaySec?.max ?? 20;
 const MIN_RARITY_GEOMETRIC_RATIO = 1.05;
 const MAX_RARITY_GEOMETRIC_RATIO = 3.0;
+const RARE_COMMENTS_AMOUNT_PRESETS = Object.freeze([
+  { key: "very-low", label: "Very low", ratio: 3.0, apexCount: 1 },
+  { key: "low", label: "Low", ratio: 2.5, apexCount: 1 },
+  { key: "medium", label: "Medium", ratio: 2.0, apexCount: 2 },
+  { key: "high", label: "High", ratio: 1.5, apexCount: 2 },
+  { key: "very-high", label: "Very High", ratio: 1.05, apexCount: 3 }
+]);
 const PRESET_PROFILE_VALUES = ["minimal", "balanced"];
 const RARITY_SKIN_VALUES = ["default", "borderlands", "borderlands2", "minecraft", "animalcrossing"];
 const RARITY_LOGIC_MODE_VALUES = ["geometric"];
@@ -294,6 +305,48 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function mapStackFadeIntensityToSettings(intensityValue) {
+  const intensity = clamp(Number(intensityValue || 0), 0, 100) / 100;
+  const start = Math.round(
+    STACK_FADE_INTENSITY_MAX_START -
+      intensity * (STACK_FADE_INTENSITY_MAX_START - STACK_FADE_INTENSITY_MIN_START)
+  );
+  const step = Math.round(
+    STACK_FADE_INTENSITY_MIN_STEP +
+      intensity * (STACK_FADE_INTENSITY_MAX_STEP - STACK_FADE_INTENSITY_MIN_STEP)
+  );
+  return {
+    start: clamp(start, MIN_STACK_OPACITY_FADE_START, MAX_STACK_OPACITY_FADE_START),
+    step: clamp(step, MIN_STACK_OPACITY_FADE_STEP_PERCENT, MAX_STACK_OPACITY_FADE_STEP_PERCENT)
+  };
+}
+
+function mapStackFadeSettingsToIntensity(startValue, stepValue) {
+  const start = clamp(
+    Number(startValue ?? DEFAULT_STACK_OPACITY_FADE_START),
+    MIN_STACK_OPACITY_FADE_START,
+    MAX_STACK_OPACITY_FADE_START
+  );
+  const step = clamp(
+    Number(stepValue ?? DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT),
+    MIN_STACK_OPACITY_FADE_STEP_PERCENT,
+    MAX_STACK_OPACITY_FADE_STEP_PERCENT
+  );
+  const startDen = Math.max(1, STACK_FADE_INTENSITY_MAX_START - STACK_FADE_INTENSITY_MIN_START);
+  const stepDen = Math.max(1, STACK_FADE_INTENSITY_MAX_STEP - STACK_FADE_INTENSITY_MIN_STEP);
+  const startNorm = clamp(
+    1 - ((start - STACK_FADE_INTENSITY_MIN_START) / startDen),
+    0,
+    1
+  );
+  const stepNorm = clamp(
+    (step - STACK_FADE_INTENSITY_MIN_STEP) / stepDen,
+    0,
+    1
+  );
+  return Math.round(((startNorm + stepNorm) / 2) * 100);
+}
+
 function normalizePresetProfile(value) {
   return PRESET_PROFILE_VALUES.includes(value) ? value : DEFAULT_PRESET_PROFILE;
 }
@@ -304,6 +357,42 @@ function normalizeRaritySkin(value) {
 
 function normalizeRarityLogicMode(value) {
   return RARITY_LOGIC_MODE_VALUES.includes(value) ? value : DEFAULT_RARITY_LOGIC_MODE;
+}
+
+function normalizeRarityGeometricRatio(value) {
+  return clamp(
+    Number(value ?? DEFAULT_RARITY_GEOMETRIC_RATIO),
+    MIN_RARITY_GEOMETRIC_RATIO,
+    MAX_RARITY_GEOMETRIC_RATIO
+  );
+}
+
+function getRareCommentsPresetByKey(key) {
+  return RARE_COMMENTS_AMOUNT_PRESETS.find((preset) => preset.key === String(key || "")) || null;
+}
+
+function getRareCommentsPresetByIndex(index) {
+  const safeIndex = clamp(
+    Math.round(Number(index || 0)),
+    0,
+    Math.max(0, RARE_COMMENTS_AMOUNT_PRESETS.length - 1)
+  );
+  return RARE_COMMENTS_AMOUNT_PRESETS[safeIndex] || RARE_COMMENTS_AMOUNT_PRESETS[0] || null;
+}
+
+function getRareCommentsPresetIndexByKey(key) {
+  const index = RARE_COMMENTS_AMOUNT_PRESETS.findIndex(
+    (preset) => preset.key === String(key || "")
+  );
+  return index >= 0 ? index : 0;
+}
+
+function getRareCommentsPresetKeyForRatio(ratio) {
+  const normalizedRatio = Number(normalizeRarityGeometricRatio(ratio).toFixed(2));
+  const preset = RARE_COMMENTS_AMOUNT_PRESETS.find(
+    (entry) => Number(entry.ratio.toFixed(2)) === normalizedRatio
+  );
+  return preset?.key || "custom";
 }
 
 function normalizeHiddenRarityTiersBySkin(value) {
@@ -340,8 +429,59 @@ function getRarityPreviewScheme(raritySkin) {
   return (skin?.tiers || []).map((tier) => ({
     key: tier.key,
     label: tier.label,
-    color: tier.bodyColor
+    color: getPreviewTierAccentColor(tier)
   }));
+}
+
+function parseHexColorToRgb(hex) {
+  const normalized = rarityShared.normalizeHexColor(hex, "#000000").replace("#", "");
+  if (normalized.length !== 6) {
+    return null;
+  }
+  const value = Number.parseInt(normalized, 16);
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255
+  };
+}
+
+function getColorLuminanceAndSaturation(hex) {
+  const rgb = parseHexColorToRgb(hex);
+  if (!rgb) {
+    return { luminance: 0, saturation: 0 };
+  }
+  const sr = rgb.r / 255;
+  const sg = rgb.g / 255;
+  const sb = rgb.b / 255;
+  const linear = [sr, sg, sb].map((value) =>
+    value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
+  );
+  const luminance = (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2]);
+
+  const max = Math.max(sr, sg, sb);
+  const min = Math.min(sr, sg, sb);
+  const saturation = max <= 0 ? 0 : (max - min) / max;
+  return { luminance, saturation };
+}
+
+function getPreviewTierAccentColor(tier) {
+  const body = rarityShared.normalizeHexColor(tier?.bodyColor, "#B5B5B5");
+  const border = rarityShared.normalizeHexColor(tier?.borderColor, body);
+  const bodyScore = getColorLuminanceAndSaturation(body);
+  const borderScore = getColorLuminanceAndSaturation(border);
+  const bodyComposite = (bodyScore.luminance * 0.6) + (bodyScore.saturation * 0.4);
+  const borderComposite = (borderScore.luminance * 0.6) + (borderScore.saturation * 0.4);
+  if (borderComposite > bodyComposite) {
+    return border;
+  }
+  if (bodyComposite > borderComposite) {
+    return body;
+  }
+  return borderScore.luminance >= bodyScore.luminance ? border : body;
 }
 
 function getPresetShowLikesDefault(presetProfile) {
@@ -417,11 +557,13 @@ async function getConfigs() {
       "overlayAvatarSize",
       "overlayGlassiness",
       "overlayDarkness",
+      APPEARANCE_LOCAL_MODIFIERS_MIGRATION_KEY,
       "debugMode",
       "allowLongMessages",
       "maxMessageChars",
       "earlyModeEnabled",
       "followPlaybackSpeed",
+      "clickBackContextSeconds",
       "earlySeconds",
       "timestampAccentEffect",
       "reverseStackOrder",
@@ -429,13 +571,8 @@ async function getConfigs() {
       "priorityScoringEnabled",
       "priorityLikesWeight",
       "topLikedThresholdPercent",
-      "popularityModeEnabled",
       "heatmapEnabled",
       "heatmapIntensity",
-      "routingEnabled",
-      "routingThreshold",
-      "routingShortCorner",
-      "routingLongCorner",
       "showAuthorInNotifications",
       "showLikesInNotifications",
       "showUpcomingDot",
@@ -517,6 +654,26 @@ async function getConfigs() {
     MIN_OVERLAY_DARKNESS,
     MAX_OVERLAY_DARKNESS
   );
+  const appearanceLocalModifiersMigrated = Boolean(
+    storedSync?.[APPEARANCE_LOCAL_MODIFIERS_MIGRATION_KEY] ?? false
+  );
+  const effectiveOverlayGlassiness = appearanceLocalModifiersMigrated
+    ? overlayGlassiness
+    : DEFAULT_OVERLAY_GLASSINESS;
+  const effectiveOverlayDarkness = appearanceLocalModifiersMigrated
+    ? overlayDarkness
+    : DEFAULT_OVERLAY_DARKNESS;
+  if (!appearanceLocalModifiersMigrated) {
+    try {
+      await chrome.storage.sync.set({
+        overlayGlassiness: DEFAULT_OVERLAY_GLASSINESS,
+        overlayDarkness: DEFAULT_OVERLAY_DARKNESS,
+        [APPEARANCE_LOCAL_MODIFIERS_MIGRATION_KEY]: true
+      });
+    } catch (error) {
+      // Ignore migration write failures and fall back to neutral UI values for this popup session.
+    }
+  }
   const debugMode = Boolean(storedSync?.debugMode ?? DEFAULT_DEBUG_MODE);
   const allowLongMessages =
     storedSync?.allowLongMessages === undefined
@@ -532,6 +689,11 @@ async function getConfigs() {
   );
   const followPlaybackSpeed = Boolean(
     storedSync?.followPlaybackSpeed ?? DEFAULT_FOLLOW_PLAYBACK_SPEED
+  );
+  const clickBackContextSeconds = clamp(
+    Number(storedSync?.clickBackContextSeconds ?? DEFAULT_CLICK_BACK_CONTEXT_SECONDS),
+    MIN_CLICK_BACK_CONTEXT_SECONDS,
+    MAX_CLICK_BACK_CONTEXT_SECONDS
   );
   const earlySeconds = clamp(
     Number(storedSync?.earlySeconds ?? DEFAULT_EARLY_SECONDS),
@@ -558,26 +720,11 @@ async function getConfigs() {
     MIN_TOP_LIKED_THRESHOLD_PERCENT,
     MAX_TOP_LIKED_THRESHOLD_PERCENT
   );
-  const popularityModeEnabled = Boolean(
-    storedSync?.popularityModeEnabled ?? DEFAULT_POPULARITY_MODE_ENABLED
-  );
   const heatmapEnabled = Boolean(storedSync?.heatmapEnabled ?? DEFAULT_HEATMAP_ENABLED);
   const heatmapIntensity = clamp(
     Number(storedSync?.heatmapIntensity ?? DEFAULT_HEATMAP_INTENSITY),
     MIN_HEATMAP_INTENSITY,
     MAX_HEATMAP_INTENSITY
-  );
-  const routingEnabled = Boolean(storedSync?.routingEnabled ?? DEFAULT_ROUTING_ENABLED);
-  const routingThreshold = clamp(
-    Number(storedSync?.routingThreshold ?? DEFAULT_ROUTING_THRESHOLD),
-    MIN_ROUTING_THRESHOLD,
-    MAX_ROUTING_THRESHOLD
-  );
-  const routingShortCorner = String(
-    storedSync?.routingShortCorner ?? DEFAULT_ROUTING_SHORT_CORNER
-  );
-  const routingLongCorner = String(
-    storedSync?.routingLongCorner ?? DEFAULT_ROUTING_LONG_CORNER
   );
   const presetProfile = normalizePresetProfile(
     String(storedSync?.presetProfile ?? DEFAULT_PRESET_PROFILE)
@@ -693,13 +840,14 @@ async function getConfigs() {
     overlayRadius,
     overlayRadiusBySkin,
     overlayAvatarSize,
-    overlayGlassiness,
-    overlayDarkness,
+    overlayGlassiness: effectiveOverlayGlassiness,
+    overlayDarkness: effectiveOverlayDarkness,
     debugMode,
     allowLongMessages,
     maxMessageChars,
     earlyModeEnabled,
     followPlaybackSpeed,
+    clickBackContextSeconds,
     earlySeconds,
     timestampAccentEffect,
     reverseStackOrder,
@@ -707,13 +855,8 @@ async function getConfigs() {
     priorityScoringEnabled,
     priorityLikesWeight,
     topLikedThresholdPercent,
-    popularityModeEnabled,
     heatmapEnabled,
     heatmapIntensity,
-    routingEnabled,
-    routingThreshold,
-    routingShortCorner,
-    routingLongCorner,
     showAuthorInNotifications,
     showLikesInNotifications,
     showUpcomingDot,
@@ -778,6 +921,7 @@ async function getConfigs() {
     maxMessageChars,
     earlyModeEnabled,
     followPlaybackSpeed,
+    clickBackContextSeconds,
     earlySeconds,
     timestampAccentEffect,
     reverseStackOrder,
@@ -785,13 +929,8 @@ async function getConfigs() {
     priorityScoringEnabled,
     priorityLikesWeight,
     topLikedThresholdPercent,
-    popularityModeEnabled,
     heatmapEnabled,
     heatmapIntensity,
-    routingEnabled,
-    routingThreshold,
-    routingShortCorner,
-    routingLongCorner,
     showAuthorInNotifications,
     showLikesInNotifications,
     showUpcomingDot,
@@ -835,12 +974,38 @@ function updateAvatarSizeLabel(avatarSizeSlider, avatarSizeValue) {
   avatarSizeValue.textContent = `${Math.round(Number(avatarSizeSlider.value))}px`;
 }
 
+function formatSignedPercentLabel(value) {
+  const rounded = Math.round(Number(value) || 0);
+  if (rounded > 0) return `+${rounded}%`;
+  return `${rounded}%`;
+}
+
+function mapStoredAppearanceValueToCenteredDelta(storedValue, defaultValue) {
+  const safeStored = clamp(Number(storedValue ?? defaultValue), 0, 100);
+  const safeDefault = clamp(Number(defaultValue ?? 50), 0, 100);
+  if (safeStored >= safeDefault) {
+    const den = Math.max(1, 100 - safeDefault);
+    return Math.round(((safeStored - safeDefault) / den) * 100);
+  }
+  const den = Math.max(1, safeDefault);
+  return -Math.round(((safeDefault - safeStored) / den) * 100);
+}
+
+function mapCenteredDeltaToStoredAppearanceValue(deltaValue, defaultValue) {
+  const delta = clamp(Number(deltaValue || 0), -100, 100);
+  const safeDefault = clamp(Number(defaultValue ?? 50), 0, 100);
+  if (delta >= 0) {
+    return clamp(safeDefault + ((100 - safeDefault) * (delta / 100)), 0, 100);
+  }
+  return clamp(safeDefault - (safeDefault * (Math.abs(delta) / 100)), 0, 100);
+}
+
 function updateGlassLabel(glassSlider, glassValue) {
-  glassValue.textContent = `${Math.round(Number(glassSlider.value))}%`;
+  glassValue.textContent = formatSignedPercentLabel(glassSlider.value);
 }
 
 function updateDarknessLabel(darknessSlider, darknessValue) {
-  darknessValue.textContent = `${Math.round(Number(darknessSlider.value))}%`;
+  darknessValue.textContent = formatSignedPercentLabel(darknessSlider.value);
 }
 
 function updateHeatmapIntensityLabel(heatmapSlider, heatmapValue) {
@@ -924,18 +1089,14 @@ function applySettingHoverDescriptions() {
       name: "Top-liked threshold",
       description: "Shows cutoff previews for the current tier distribution."
     },
-    "popularity-mode-toggle": {
-      name: "Temporary popularity mode",
-      description: "Enables full rarity tiers instead of basic 3-level ranking."
-    },
     "rarity-skin-select": {
       name: "Rarity skin",
       description: "Switches the rarity ladder and visuals, including Borderlands mode."
     },
     "rarity-logic-select": {
-      name: "Rarity logic",
+      name: "Tier assignment mode",
       description:
-        "Uses two-mode assignment: unlock tiers by distinct likes first, then geometric weighted quotas once enough distinct levels exist."
+        "Controls how likes map to tiers. Current mode groups equal-like comments together, unlocks tiers as distinct like counts appear, then applies geometric weighting."
     },
     "rarity-geometric-ratio-slider": {
       name: "Geometric ratio",
@@ -952,10 +1113,6 @@ function applySettingHoverDescriptions() {
     "heatmap-intensity-slider": {
       name: "Heatmap intensity",
       description: "Scales the visual strength of the timeline heatmap."
-    },
-    "routing-enabled-toggle": {
-      name: "Multi-corner routing",
-      description: "Routes comments to different corners by message length."
     },
     "show-likes-toggle": {
       name: "Show likes in notifications",
@@ -1047,13 +1204,8 @@ async function broadcastOverlaySettings({
   priorityScoringEnabled,
   priorityLikesWeight,
   topLikedThresholdPercent,
-  popularityModeEnabled,
   heatmapEnabled,
   heatmapIntensity,
-  routingEnabled,
-  routingThreshold,
-  routingShortCorner,
-  routingLongCorner,
   showAuthorInNotifications,
   showLikesInNotifications,
   showUpcomingDot,
@@ -1077,7 +1229,8 @@ async function broadcastOverlaySettings({
   rarityGeometricRatio,
   presetProfile,
   raritySkinCatalogRevision,
-  activeRaritySkinConfig
+  activeRaritySkinConfig,
+  filterSettingsChanged
 }) {
   await chrome.runtime.sendMessage({
     type: "overlaySettings",
@@ -1099,13 +1252,8 @@ async function broadcastOverlaySettings({
     priorityScoringEnabled,
     priorityLikesWeight,
     topLikedThresholdPercent,
-    popularityModeEnabled,
     heatmapEnabled,
     heatmapIntensity,
-    routingEnabled,
-    routingThreshold,
-    routingShortCorner,
-    routingLongCorner,
     showAuthorInNotifications,
     showLikesInNotifications,
     showUpcomingDot,
@@ -1131,7 +1279,8 @@ async function broadcastOverlaySettings({
     raritySkinCatalogRevision,
     rarityLogicMode,
     rarityGeometricRatio,
-    presetProfile
+    presetProfile,
+    filterSettingsChanged: Boolean(filterSettingsChanged)
   });
 }
 
@@ -1160,10 +1309,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const hideTimestampOnlyToggle = document.getElementById("hide-timestamp-only-toggle");
   const hideMultiTimestampToggle = document.getElementById("hide-multi-timestamp-toggle");
   const maxCharsInput = document.getElementById("max-chars-input");
-  const earlyModeToggle = document.getElementById("early-mode-toggle");
   const followPlaybackSpeedToggle = document.getElementById("follow-playback-speed-toggle");
-  const earlySecondsInput = document.getElementById("early-seconds-input");
-  const accentEffectSelect = document.getElementById("accent-effect-select");
+  const clickBackSecondsInput = document.getElementById("click-back-seconds-input");
   const reverseStackToggle = document.getElementById("reverse-stack-toggle");
   const popupDarkToggle = document.getElementById("popup-dark-toggle");
   const priorityScoringToggle = document.getElementById("priority-scoring-toggle");
@@ -1173,7 +1320,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const rarityGeometricRatioRow = document.getElementById("rarity-geometric-ratio-row");
   const rarityGeometricRatioSlider = document.getElementById("rarity-geometric-ratio-slider");
   const rarityGeometricRatioValue = document.getElementById("rarity-geometric-ratio-value");
-  const popularityModeToggle = document.getElementById("popularity-mode-toggle");
+  const rareCommentsAmountSlider = document.getElementById("rare-comments-amount-slider");
+  const rareCommentsAmountValue = document.getElementById("rare-comments-amount-value");
   const raritySkinSelect = document.getElementById("rarity-skin-select");
   const rarityLogicSelect = document.getElementById("rarity-logic-select");
   const rarityPreviewGrid = document.getElementById("rarity-preview-grid");
@@ -1219,15 +1367,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   const heatmapEnabledToggle = document.getElementById("heatmap-enabled-toggle");
   const heatmapIntensitySlider = document.getElementById("heatmap-intensity-slider");
   const heatmapIntensityValue = document.getElementById("heatmap-intensity-value");
-  const routingEnabledToggle = document.getElementById("routing-enabled-toggle");
-  const routingThresholdInput = document.getElementById("routing-threshold-input");
-  const routingShortCornerSelect = document.getElementById("routing-short-corner-select");
-  const routingLongCornerSelect = document.getElementById("routing-long-corner-select");
   const showAuthorToggle = document.getElementById("show-author-toggle");
   const showLikesToggle = document.getElementById("show-likes-toggle");
   const showRarityLabelToggle = document.getElementById("show-rarity-label-toggle");
   const showUpcomingDotToggle = document.getElementById("show-upcoming-dot-toggle");
   const stackOpacityFadeToggle = document.getElementById("stack-opacity-fade-toggle");
+  const stackOpacityFadeIntensitySlider = document.getElementById("stack-opacity-fade-intensity-slider");
+  const stackOpacityFadeIntensityValue = document.getElementById("stack-opacity-fade-intensity-value");
+  const stackOpacityFadeAdvancedDetails = document.getElementById("stack-opacity-fade-advanced-details");
   const stackOpacityFadeStartInput = document.getElementById("stack-opacity-fade-start-input");
   const stackOpacityFadeStepInput = document.getElementById("stack-opacity-fade-step-input");
   const experimentalGameSkinToggle = document.getElementById("experimental-game-skin-toggle");
@@ -1251,6 +1398,79 @@ document.addEventListener("DOMContentLoaded", async () => {
     configs.overlayRadiusBySkin,
     configs.overlayRadius
   );
+
+  const updateStackFadeIntensityLabel = (value) => {
+    if (!stackOpacityFadeIntensityValue) return;
+    const pct = Math.round(clamp(Number(value || 0), 0, 100));
+    stackOpacityFadeIntensityValue.textContent = `${pct}%`;
+  };
+
+  const syncStackFadeIntensitySliderFromAdvanced = () => {
+    if (!stackOpacityFadeIntensitySlider) return;
+    const intensity = mapStackFadeSettingsToIntensity(
+      Number(stackOpacityFadeStartInput?.value || DEFAULT_STACK_OPACITY_FADE_START),
+      Number(stackOpacityFadeStepInput?.value || DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT)
+    );
+    stackOpacityFadeIntensitySlider.value = String(intensity);
+    updateStackFadeIntensityLabel(intensity);
+  };
+
+  const syncStackFadeAdvancedFromIntensity = () => {
+    if (!stackOpacityFadeIntensitySlider) return;
+    const { start, step } = mapStackFadeIntensityToSettings(
+      Number(stackOpacityFadeIntensitySlider.value || 0)
+    );
+    if (stackOpacityFadeStartInput) {
+      stackOpacityFadeStartInput.value = String(start);
+    }
+    if (stackOpacityFadeStepInput) {
+      stackOpacityFadeStepInput.value = String(step);
+    }
+    updateStackFadeIntensityLabel(stackOpacityFadeIntensitySlider.value);
+  };
+
+  const updateRareCommentsPresetLabel = (text) => {
+    if (rareCommentsAmountValue) {
+      rareCommentsAmountValue.textContent = String(text || "");
+    }
+  };
+
+  const syncRareCommentsPresetFromRatio = () => {
+    if (!rareCommentsAmountSlider || !rarityGeometricRatioSlider) return;
+    const presetKey = getRareCommentsPresetKeyForRatio(
+      Number(rarityGeometricRatioSlider.value || DEFAULT_RARITY_GEOMETRIC_RATIO)
+    );
+    if (presetKey === "custom") {
+      const currentRatio = Number(rarityGeometricRatioSlider.value || DEFAULT_RARITY_GEOMETRIC_RATIO);
+      let nearestIndex = 0;
+      let nearestDiff = Number.POSITIVE_INFINITY;
+      RARE_COMMENTS_AMOUNT_PRESETS.forEach((preset, index) => {
+        const diff = Math.abs(Number(preset.ratio) - currentRatio);
+        if (diff < nearestDiff) {
+          nearestDiff = diff;
+          nearestIndex = index;
+        }
+      });
+      rareCommentsAmountSlider.value = String(nearestIndex);
+      updateRareCommentsPresetLabel("Custom (Advanced)");
+      return;
+    }
+    const preset = getRareCommentsPresetByKey(presetKey);
+    rareCommentsAmountSlider.value = String(getRareCommentsPresetIndexByKey(presetKey));
+    updateRareCommentsPresetLabel(preset?.label || "Medium");
+  };
+
+  const applyRareCommentsPresetToRatioSlider = () => {
+    if (!rareCommentsAmountSlider || !rarityGeometricRatioSlider) return false;
+    const preset = getRareCommentsPresetByIndex(rareCommentsAmountSlider.value);
+    if (!preset) {
+      return false;
+    }
+    rarityGeometricRatioSlider.value = Number(preset.ratio).toFixed(2);
+    updateGeometricRatioLabel(rarityGeometricRatioSlider, rarityGeometricRatioValue);
+    updateRareCommentsPresetLabel(preset.label || "Medium");
+    return true;
+  };
 
   async function syncThemeRadiusFromDisplaySlider(activeThemeId, nextRadius) {
     if (!themeCatalogV2Shared?.normalizeThemeCatalog || !activeThemeId) {
@@ -1376,8 +1596,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   durationSlider.value = String(configs.displayDuration);
   radiusSlider.value = String(configs.overlayRadius);
   avatarSizeSlider.value = String(configs.overlayAvatarSize);
-  glassSlider.value = String(configs.overlayGlassiness);
-  darknessSlider.value = String(configs.overlayDarkness);
+  glassSlider.value = String(
+    mapStoredAppearanceValueToCenteredDelta(
+      configs.overlayGlassiness,
+      DEFAULT_OVERLAY_GLASSINESS
+    )
+  );
+  darknessSlider.value = String(
+    mapStoredAppearanceValueToCenteredDelta(
+      configs.overlayDarkness,
+      DEFAULT_OVERLAY_DARKNESS
+    )
+  );
   if (debugToggle) {
     debugToggle.checked = configs.debugMode;
   }
@@ -1386,12 +1616,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   hideMultiTimestampToggle.checked = configs.hideMultiTimestampMessages;
   maxCharsInput.value = String(configs.maxMessageChars);
   maxCharsInput.disabled = configs.allowLongMessages;
-  earlyModeToggle.checked = configs.earlyModeEnabled;
   followPlaybackSpeedToggle.checked = configs.followPlaybackSpeed;
-  earlySecondsInput.value = String(configs.earlySeconds);
-  earlySecondsInput.disabled = !configs.earlyModeEnabled;
-  accentEffectSelect.value = configs.timestampAccentEffect;
-  accentEffectSelect.disabled = !configs.earlyModeEnabled;
+  if (clickBackSecondsInput) {
+    clickBackSecondsInput.value = String(configs.clickBackContextSeconds);
+  }
   reverseStackToggle.checked = configs.reverseStackOrder;
   popupDarkToggle.checked = configs.popupDarkMode;
   priorityScoringToggle.checked = configs.priorityScoringEnabled;
@@ -1399,23 +1627,43 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (topLikedThresholdSlider) {
     topLikedThresholdSlider.value = String(configs.topLikedThresholdPercent);
   }
-  popularityModeToggle.checked = configs.popularityModeEnabled;
   raritySkinSelect.value = normalizeRaritySkin(configs.raritySkin);
   rarityLogicSelect.value = normalizeRarityLogicMode(configs.rarityLogicMode);
   rarityGeometricRatioSlider.value = Number(configs.rarityGeometricRatio).toFixed(2);
+  if (rareCommentsAmountSlider) {
+    const presetKey = getRareCommentsPresetKeyForRatio(configs.rarityGeometricRatio);
+    rareCommentsAmountSlider.value = String(
+      getRareCommentsPresetIndexByKey(presetKey === "custom" ? "medium" : presetKey)
+    );
+    const preset = getRareCommentsPresetByKey(presetKey);
+    updateRareCommentsPresetLabel(preset?.label || (presetKey === "custom" ? "Custom (Advanced)" : "Medium"));
+    if (presetKey === "custom") {
+      updateRareCommentsPresetLabel("Custom (Advanced)");
+    }
+  }
   heatmapEnabledToggle.checked = configs.heatmapEnabled;
   heatmapIntensitySlider.value = String(configs.heatmapIntensity);
-  routingEnabledToggle.checked = configs.routingEnabled;
-  routingThresholdInput.value = String(configs.routingThreshold);
-  routingShortCornerSelect.value = configs.routingShortCorner;
-  routingLongCornerSelect.value = configs.routingLongCorner;
   showAuthorToggle.checked = configs.showAuthorInNotifications;
   showLikesToggle.checked = configs.showLikesInNotifications;
   showRarityLabelToggle.checked = configs.showRarityLabelInNotifications;
   showUpcomingDotToggle.checked = configs.showUpcomingDot;
-  stackOpacityFadeToggle.checked = configs.stackOpacityFadeEnabled;
-  stackOpacityFadeStartInput.value = String(configs.stackOpacityFadeStart);
-  stackOpacityFadeStepInput.value = String(configs.stackOpacityFadeStepPercent);
+  if (stackOpacityFadeToggle) {
+    stackOpacityFadeToggle.checked = configs.stackOpacityFadeEnabled;
+  }
+  if (stackOpacityFadeStartInput) {
+    stackOpacityFadeStartInput.value = String(configs.stackOpacityFadeStart);
+  }
+  if (stackOpacityFadeStepInput) {
+    stackOpacityFadeStepInput.value = String(configs.stackOpacityFadeStepPercent);
+  }
+  if (stackOpacityFadeIntensitySlider) {
+    const initialIntensity = mapStackFadeSettingsToIntensity(
+      configs.stackOpacityFadeStart,
+      configs.stackOpacityFadeStepPercent
+    );
+    stackOpacityFadeIntensitySlider.value = String(initialIntensity);
+    updateStackFadeIntensityLabel(initialIntensity);
+  }
   experimentalGameSkinToggle.checked = configs.experimentalGameSkinAutoEnabled;
   commentFetchStartupPagesInput.value = String(configs.commentFetchStartupPages);
   commentScanDelayInput.value = String(configs.commentScanStartDelaySec);
@@ -1428,11 +1676,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   showRarityLabelToggle.disabled = configs.presetProfile === "minimal";
   priorityLikesWeightInput.disabled = !configs.priorityScoringEnabled;
   heatmapIntensitySlider.disabled = !configs.heatmapEnabled;
-  routingThresholdInput.disabled = !configs.routingEnabled;
-  routingShortCornerSelect.disabled = !configs.routingEnabled;
-  routingLongCornerSelect.disabled = !configs.routingEnabled;
-  stackOpacityFadeStartInput.disabled = !configs.stackOpacityFadeEnabled;
-  stackOpacityFadeStepInput.disabled = !configs.stackOpacityFadeEnabled;
+  if (stackOpacityFadeIntensitySlider) {
+    stackOpacityFadeIntensitySlider.disabled = !configs.stackOpacityFadeEnabled;
+  }
+  if (stackOpacityFadeStartInput) {
+    stackOpacityFadeStartInput.disabled = !configs.stackOpacityFadeEnabled;
+  }
+  if (stackOpacityFadeStepInput) {
+    stackOpacityFadeStepInput.disabled = !configs.stackOpacityFadeEnabled;
+  }
   document.body.classList.toggle("dark-mode", configs.popupDarkMode);
   applySettingHoverDescriptions();
 
@@ -1816,7 +2068,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       const swatch = document.createElement("span");
       swatch.className = "rarity-preview-swatch";
-      swatch.style.background = tier.color;
+      const sourceTier = (skin?.tiers || []).find((entry) => entry?.key === tier.key);
+      swatch.style.background = sourceTier ? getPreviewTierAccentColor(sourceTier) : tier.color;
 
       const text = document.createElement("span");
       text.className = "rarity-preview-pill-label";
@@ -1833,6 +2086,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       input.type = "checkbox";
       input.checked = !Boolean(hiddenMap[tier.key]);
       input.addEventListener("change", async () => {
+        if ((rows?.length || 0) <= 1 && input.checked === false) {
+          input.checked = true;
+          return;
+        }
         if (!hiddenRarityTiersBySkin[skinId]) {
           hiddenRarityTiersBySkin[skinId] = {};
         }
@@ -2064,12 +2321,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       MAX_OVERLAY_AVATAR_SIZE
     );
     const overlayGlassiness = clamp(
-      Number(glassSlider.value),
+      mapCenteredDeltaToStoredAppearanceValue(
+        Number(glassSlider.value),
+        DEFAULT_OVERLAY_GLASSINESS
+      ),
       MIN_OVERLAY_GLASSINESS,
       MAX_OVERLAY_GLASSINESS
     );
     const overlayDarkness = clamp(
-      Number(darknessSlider.value),
+      mapCenteredDeltaToStoredAppearanceValue(
+        Number(darknessSlider.value),
+        DEFAULT_OVERLAY_DARKNESS
+      ),
       MIN_OVERLAY_DARKNESS,
       MAX_OVERLAY_DARKNESS
     );
@@ -2084,15 +2347,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     );
     maxCharsInput.value = String(maxMessageChars);
     maxCharsInput.disabled = allowLongMessages;
-    const earlyModeEnabled = Boolean(earlyModeToggle.checked);
     const followPlaybackSpeed = Boolean(followPlaybackSpeedToggle.checked);
+    const earlyModeEnabled = Boolean(configs.earlyModeEnabled ?? DEFAULT_EARLY_MODE_ENABLED);
+    const clickBackContextSeconds = clamp(
+      Number(clickBackSecondsInput?.value || DEFAULT_CLICK_BACK_CONTEXT_SECONDS),
+      MIN_CLICK_BACK_CONTEXT_SECONDS,
+      MAX_CLICK_BACK_CONTEXT_SECONDS
+    );
     const earlySeconds = clamp(
-      Number(earlySecondsInput.value || DEFAULT_EARLY_SECONDS),
+      Number(configs.earlySeconds ?? DEFAULT_EARLY_SECONDS),
       MIN_EARLY_SECONDS,
       MAX_EARLY_SECONDS
     );
     const timestampAccentEffect = String(
-      accentEffectSelect.value || DEFAULT_TIMESTAMP_ACCENT_EFFECT
+      configs.timestampAccentEffect || DEFAULT_TIMESTAMP_ACCENT_EFFECT
     );
     const reverseStackOrder = Boolean(reverseStackToggle.checked);
     const priorityScoringEnabled = Boolean(priorityScoringToggle.checked);
@@ -2102,32 +2370,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       MAX_PRIORITY_LIKES_WEIGHT
     );
     const topLikedThresholdPercent = readTopLikedThresholdPercent();
-    const popularityModeEnabled = Boolean(popularityModeToggle.checked);
     const rarityLogicMode = normalizeRarityLogicMode(
       String(rarityLogicSelect?.value || DEFAULT_RARITY_LOGIC_MODE)
     );
-    const rarityGeometricRatio = clamp(
-      Number(rarityGeometricRatioSlider.value || DEFAULT_RARITY_GEOMETRIC_RATIO),
-      MIN_RARITY_GEOMETRIC_RATIO,
-      MAX_RARITY_GEOMETRIC_RATIO
+    const rarityGeometricRatio = normalizeRarityGeometricRatio(
+      Number(rarityGeometricRatioSlider.value || DEFAULT_RARITY_GEOMETRIC_RATIO)
     );
     const heatmapEnabled = Boolean(heatmapEnabledToggle.checked);
     const heatmapIntensity = clamp(
       Number(heatmapIntensitySlider.value || DEFAULT_HEATMAP_INTENSITY),
       MIN_HEATMAP_INTENSITY,
       MAX_HEATMAP_INTENSITY
-    );
-    const routingEnabled = Boolean(routingEnabledToggle.checked);
-    const routingThreshold = clamp(
-      Number(routingThresholdInput.value || DEFAULT_ROUTING_THRESHOLD),
-      MIN_ROUTING_THRESHOLD,
-      MAX_ROUTING_THRESHOLD
-    );
-    const routingShortCorner = String(
-      routingShortCornerSelect.value || DEFAULT_ROUTING_SHORT_CORNER
-    );
-    const routingLongCorner = String(
-      routingLongCornerSelect.value || DEFAULT_ROUTING_LONG_CORNER
     );
     const presetProfile = minimalModeToggle.checked ? "minimal" : "balanced";
     const showAuthorInNotifications =
@@ -2141,14 +2394,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         ? false
         : Boolean(showRarityLabelToggle.checked);
     const showUpcomingDot = Boolean(showUpcomingDotToggle.checked);
-    const stackOpacityFadeEnabled = Boolean(stackOpacityFadeToggle.checked);
+    const stackOpacityFadeEnabled = Boolean(
+      stackOpacityFadeToggle?.checked ?? DEFAULT_STACK_OPACITY_FADE_ENABLED
+    );
     const stackOpacityFadeStart = clamp(
-      Number(stackOpacityFadeStartInput.value || DEFAULT_STACK_OPACITY_FADE_START),
+      Number(stackOpacityFadeStartInput?.value || DEFAULT_STACK_OPACITY_FADE_START),
       MIN_STACK_OPACITY_FADE_START,
       MAX_STACK_OPACITY_FADE_START
     );
     const stackOpacityFadeStepPercent = clamp(
-      Number(stackOpacityFadeStepInput.value || DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT),
+      Number(stackOpacityFadeStepInput?.value || DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT),
       MIN_STACK_OPACITY_FADE_STEP_PERCENT,
       MAX_STACK_OPACITY_FADE_STEP_PERCENT
     );
@@ -2177,33 +2432,66 @@ document.addEventListener("DOMContentLoaded", async () => {
     commentFetchStartupPagesInput.value = String(commentFetchStartupPages);
     commentScanDelayInput.value = String(commentScanStartDelaySec);
     commentFetchMaxPagesInput.value = String(commentFetchMaxPages);
-    stackOpacityFadeStartInput.value = String(stackOpacityFadeStart);
-    stackOpacityFadeStepInput.value = String(stackOpacityFadeStepPercent);
-    stackOpacityFadeStartInput.disabled = !stackOpacityFadeEnabled;
-    stackOpacityFadeStepInput.disabled = !stackOpacityFadeEnabled;
+    if (stackOpacityFadeStartInput) {
+      stackOpacityFadeStartInput.value = String(stackOpacityFadeStart);
+    }
+    if (stackOpacityFadeStepInput) {
+      stackOpacityFadeStepInput.value = String(stackOpacityFadeStepPercent);
+    }
+    if (stackOpacityFadeIntensitySlider) {
+      const intensity = mapStackFadeSettingsToIntensity(
+        stackOpacityFadeStart,
+        stackOpacityFadeStepPercent
+      );
+      stackOpacityFadeIntensitySlider.value = String(intensity);
+      updateStackFadeIntensityLabel(intensity);
+      stackOpacityFadeIntensitySlider.disabled = !stackOpacityFadeEnabled;
+    }
+    if (stackOpacityFadeStartInput) {
+      stackOpacityFadeStartInput.disabled = !stackOpacityFadeEnabled;
+    }
+    if (stackOpacityFadeStepInput) {
+      stackOpacityFadeStepInput.disabled = !stackOpacityFadeEnabled;
+    }
     showLikesToggle.checked = showLikesInNotifications;
     showRarityLabelToggle.checked = showRarityLabelInNotifications;
     showRarityLabelToggle.disabled = presetProfile === "minimal";
     renderLiveNotificationPreview();
-    earlySecondsInput.value = String(earlySeconds);
+    if (clickBackSecondsInput) {
+      clickBackSecondsInput.value = String(clickBackContextSeconds);
+    }
     priorityLikesWeightInput.value = String(priorityLikesWeight);
     if (topLikedThresholdSlider) {
       topLikedThresholdSlider.value = String(topLikedThresholdPercent);
     }
     rarityGeometricRatioSlider.value = rarityGeometricRatio.toFixed(2);
     updateGeometricRatioLabel(rarityGeometricRatioSlider, rarityGeometricRatioValue);
+    syncRareCommentsPresetFromRatio();
     syncGeometricRatioControlState();
+    glassSlider.value = String(
+      mapStoredAppearanceValueToCenteredDelta(
+        overlayGlassiness,
+        DEFAULT_OVERLAY_GLASSINESS
+      )
+    );
+    darknessSlider.value = String(
+      mapStoredAppearanceValueToCenteredDelta(
+        overlayDarkness,
+        DEFAULT_OVERLAY_DARKNESS
+      )
+    );
+    updateGlassLabel(glassSlider, glassValue);
+    updateDarknessLabel(darknessSlider, darknessValue);
     heatmapIntensitySlider.value = String(heatmapIntensity);
-    routingThresholdInput.value = String(routingThreshold);
-    earlySecondsInput.disabled = !earlyModeEnabled;
-    accentEffectSelect.disabled = !earlyModeEnabled;
     priorityLikesWeightInput.disabled = !priorityScoringEnabled;
     heatmapIntensitySlider.disabled = !heatmapEnabled;
-    routingThresholdInput.disabled = !routingEnabled;
-    routingShortCornerSelect.disabled = !routingEnabled;
-    routingLongCornerSelect.disabled = !routingEnabled;
     const hiddenBySkinId = normalizeHiddenRarityTiersBySkin(hiddenRarityTiersBySkin);
     const activeRaritySkinConfig = rarityShared.deepClone(getSkinConfigById(raritySkin));
+    const filterSettingsChanged =
+      allowLongMessages !== Boolean(configs.allowLongMessages) ||
+      maxMessageChars !== Number(configs.maxMessageChars) ||
+      hideTimestampOnlyMessages !== Boolean(configs.hideTimestampOnlyMessages) ||
+      hideMultiTimestampMessages !== Boolean(configs.hideMultiTimestampMessages);
 
     const settings = {
       overlayScale,
@@ -2218,22 +2506,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       maxMessageChars,
       earlyModeEnabled,
       followPlaybackSpeed,
+      clickBackContextSeconds,
       earlySeconds,
       timestampAccentEffect,
       reverseStackOrder,
       priorityScoringEnabled,
       priorityLikesWeight,
       topLikedThresholdPercent,
-      popularityModeEnabled,
       raritySkin,
       rarityLogicMode,
       rarityGeometricRatio,
       heatmapEnabled,
       heatmapIntensity,
-      routingEnabled,
-      routingThreshold,
-      routingShortCorner,
-      routingLongCorner,
       showAuthorInNotifications,
       showLikesInNotifications,
       showRarityLabelInNotifications,
@@ -2262,8 +2546,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     await broadcastOverlaySettings({
       ...settings,
       raritySkinCatalogRevision,
-      activeRaritySkinConfig
+      activeRaritySkinConfig,
+      filterSettingsChanged
     });
+    Object.assign(configs, settings);
   }
 
   async function applySelectedPresetAndSave() {
@@ -2396,10 +2682,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   hideTimestampOnlyToggle.addEventListener("change", saveOverlaySettings);
   hideMultiTimestampToggle.addEventListener("change", saveOverlaySettings);
   maxCharsInput.addEventListener("change", saveOverlaySettings);
-  earlyModeToggle.addEventListener("change", saveOverlaySettings);
   followPlaybackSpeedToggle.addEventListener("change", saveOverlaySettings);
-  earlySecondsInput.addEventListener("change", saveOverlaySettings);
-  accentEffectSelect.addEventListener("change", saveOverlaySettings);
+  if (clickBackSecondsInput) {
+    clickBackSecondsInput.addEventListener("change", saveOverlaySettings);
+  }
   priorityLikesWeightInput.addEventListener("change", saveOverlaySettings);
   if (topLikedThresholdSlider) {
     topLikedThresholdSlider.addEventListener("change", saveOverlaySettings);
@@ -2408,21 +2694,39 @@ document.addEventListener("DOMContentLoaded", async () => {
     syncGeometricRatioControlState();
     saveOverlaySettings();
   });
+  if (rareCommentsAmountSlider) {
+    rareCommentsAmountSlider.addEventListener("input", () => {
+      const preset = getRareCommentsPresetByIndex(rareCommentsAmountSlider.value);
+      updateRareCommentsPresetLabel(preset?.label || "");
+    });
+    rareCommentsAmountSlider.addEventListener("change", () => {
+      applyRareCommentsPresetToRatioSlider();
+      saveOverlaySettings();
+    });
+  }
   rarityGeometricRatioSlider.addEventListener("input", () => {
     updateGeometricRatioLabel(rarityGeometricRatioSlider, rarityGeometricRatioValue);
+    syncRareCommentsPresetFromRatio();
   });
-  rarityGeometricRatioSlider.addEventListener("change", saveOverlaySettings);
+  rarityGeometricRatioSlider.addEventListener("change", () => {
+    syncRareCommentsPresetFromRatio();
+    saveOverlaySettings();
+  });
   heatmapEnabledToggle.addEventListener("change", saveOverlaySettings);
   heatmapIntensitySlider.addEventListener("change", saveOverlaySettings);
-  routingEnabledToggle.addEventListener("change", saveOverlaySettings);
-  routingThresholdInput.addEventListener("change", saveOverlaySettings);
-  routingShortCornerSelect.addEventListener("change", saveOverlaySettings);
-  routingLongCornerSelect.addEventListener("change", saveOverlaySettings);
   showAuthorToggle.addEventListener("change", saveOverlaySettings);
   showUpcomingDotToggle.addEventListener("change", saveOverlaySettings);
-  stackOpacityFadeToggle.addEventListener("change", saveOverlaySettings);
-  stackOpacityFadeStartInput.addEventListener("change", saveOverlaySettings);
-  stackOpacityFadeStepInput.addEventListener("change", saveOverlaySettings);
+  if (stackOpacityFadeIntensitySlider && stackOpacityFadeStartInput && stackOpacityFadeStepInput) {
+    stackOpacityFadeIntensitySlider.addEventListener("input", () => {
+      syncStackFadeAdvancedFromIntensity();
+    });
+  }
+  if (stackOpacityFadeStartInput && stackOpacityFadeStepInput) {
+    stackOpacityFadeStartInput.addEventListener("input", syncStackFadeIntensitySliderFromAdvanced);
+    stackOpacityFadeStepInput.addEventListener("input", syncStackFadeIntensitySliderFromAdvanced);
+    stackOpacityFadeStartInput.addEventListener("change", syncStackFadeIntensitySliderFromAdvanced);
+    stackOpacityFadeStepInput.addEventListener("change", syncStackFadeIntensitySliderFromAdvanced);
+  }
   experimentalGameSkinToggle.addEventListener("change", saveOverlaySettings);
   commentFetchStartupPagesInput.addEventListener("change", saveOverlaySettings);
   commentScanDelayInput.addEventListener("change", saveOverlaySettings);
@@ -2465,10 +2769,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindRealtime(showLikesToggle, saveOverlaySettings);
   bindRealtime(priorityScoringToggle, saveOverlaySettings);
   bindRealtime(showRarityLabelToggle, saveOverlaySettings);
-  bindRealtime(popularityModeToggle, saveOverlaySettings);
-  bindRealtime(stackOpacityFadeToggle, saveOverlaySettings);
-  bindRealtime(stackOpacityFadeStartInput, saveOverlaySettings);
-  bindRealtime(stackOpacityFadeStepInput, saveOverlaySettings);
+  if (stackOpacityFadeToggle) {
+    bindRealtime(stackOpacityFadeToggle, saveOverlaySettings);
+  }
+  if (stackOpacityFadeStartInput) {
+    bindRealtime(stackOpacityFadeStartInput, saveOverlaySettings);
+  }
+  if (stackOpacityFadeStepInput) {
+    bindRealtime(stackOpacityFadeStepInput, saveOverlaySettings);
+  }
+  if (stackOpacityFadeIntensitySlider && stackOpacityFadeStartInput && stackOpacityFadeStepInput) {
+    bindRealtime(stackOpacityFadeIntensitySlider, () => {
+      syncStackFadeAdvancedFromIntensity();
+      saveOverlaySettings();
+    });
+  }
   bindRealtime(raritySkinSelect, async () => {
     const selectedSkin = normalizeRaritySkin(raritySkinSelect.value);
     const selectedRadius = normalizeRadiusValue(

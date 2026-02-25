@@ -74,6 +74,40 @@
 .tc-css-effect-velvet-bloom .tc-css-effect-layer-b { background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--tc-effect-color) 10%, transparent), transparent 70%); }
 .tc-css-effect-crystal-shift .tc-css-effect-layer-a { background: conic-gradient(from 90deg at 50% 50%, color-mix(in srgb, #fff 18%, transparent), transparent 18%, color-mix(in srgb, var(--tc-effect-color) 22%, transparent) 34%, transparent 50%, color-mix(in srgb, #9cf 18%, transparent) 68%, transparent 84%, color-mix(in srgb, #fff 16%, transparent)); animation: tcRotateSlow 10s linear infinite; opacity:.22; }
 .tc-css-effect-crystal-shift .tc-css-effect-layer-b { animation: tcHueSpin 8s linear infinite; background: linear-gradient(135deg, transparent, color-mix(in srgb, #fff 8%, transparent), transparent); }
+.tc-css-effect-landing-glow .tc-css-effect-layer-a {
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, #bdecff 36%, transparent),
+    0 0 24px 6px color-mix(in srgb, #78d5ff 28%, transparent),
+    0 0 70px 22px color-mix(in srgb, #58acff 22%, transparent),
+    0 0 150px 52px color-mix(in srgb, #58acff 16%, transparent);
+  animation: tcLandingGlowAmbient 2.8s ease-in-out infinite;
+  opacity: .24;
+}
+.tc-css-effect-landing-glow .tc-css-effect-layer-b {
+  box-shadow:
+    inset 0 0 16px color-mix(in srgb, var(--tc-effect-color) 14%, transparent),
+    0 0 18px color-mix(in srgb, #bdecff 12%, transparent);
+  animation: tcLandingGlowAmbient 3.6s ease-in-out infinite reverse;
+  opacity: .16;
+}
+.tc-css-effect-landing-glow .tc-css-effect-layer-c {
+  background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, #d7f4ff 10%, transparent), transparent 62%),
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--tc-effect-color) 10%, transparent), transparent 78%);
+  filter: blur(1px);
+  opacity: .12;
+}
+
+@keyframes tcLandingGlowAmbient {
+  0%, 100% {
+    transform: scale(1);
+    opacity: .14;
+  }
+  50% {
+    transform: scale(1.02);
+    opacity: .32;
+  }
+}
 
 /* Animal Crossing themed (10) */
 .tc-css-effect-ac-leaf-drift .tc-css-effect-layer-a { background: radial-gradient(ellipse at 18% 22%, color-mix(in srgb, #7ed6a2 28%, transparent) 0 6%, transparent 9%), radial-gradient(ellipse at 72% 66%, color-mix(in srgb, #6bbf84 24%, transparent) 0 7%, transparent 10%), radial-gradient(ellipse at 46% 42%, color-mix(in srgb, #b9e6c8 18%, transparent) 0 5%, transparent 8%); animation: tcDriftDiag 8s ease-in-out infinite alternate; }
@@ -128,4 +162,72 @@
 .overlay-comment.tc-react-hosted-card > .tc-live-react-card-frame > * {
   max-width: 100%;
   box-sizing: border-box;
+}
+
+.overlay-comment.tc-react-hosted-card.accent-rubberband {
+  animation: tcReactLandingRubberband 1s ease !important;
+}
+
+.overlay-comment.tc-react-hosted-card.accent-landing-glow {
+  position: relative !important;
+  contain: none !important;
+  overflow: visible !important;
+}
+
+.overlay-comment.tc-react-hosted-card.accent-landing-glow::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: -10px !important;
+  border-radius: calc(var(--overlay-radius, 14px) + 12px) !important;
+  pointer-events: none !important;
+  background: transparent !important;
+  box-shadow:
+    0 0 0 2px rgb(210 244 255 / 0),
+    0 0 0 0 rgb(141 222 255 / 0),
+    0 0 0 0 rgb(103 186 255 / 0),
+    0 0 0 0 rgb(103 186 255 / 0) !important;
+  animation: tcLandingGlowHalo 1.28s ease-out !important;
+  will-change: box-shadow, opacity !important;
+}
+
+@keyframes tcReactLandingRubberband {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  30% { transform: translate3d(0, 0, 0) scaleX(1.08) scaleY(0.94); }
+  55% { transform: translate3d(0, 0, 0) scaleX(0.96) scaleY(1.04); }
+  75% { transform: translate3d(0, 0, 0) scaleX(1.03) scaleY(0.98); }
+}
+
+@keyframes tcLandingGlowHalo {
+  0% {
+    opacity: 0;
+    box-shadow:
+      0 0 0 2px rgb(210 244 255 / 0),
+      0 0 0 0 rgb(141 222 255 / 0),
+      0 0 0 0 rgb(103 186 255 / 0),
+      0 0 0 0 rgb(103 186 255 / 0);
+  }
+  14% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px rgb(218 247 255 / 0.82),
+      0 0 34px 10px rgb(151 228 255 / 0.42),
+      0 0 96px 30px rgb(110 193 255 / 0.28),
+      0 0 210px 70px rgb(110 193 255 / 0.2);
+  }
+  45% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px rgb(218 247 255 / 0.5),
+      0 0 44px 14px rgb(151 228 255 / 0.24),
+      0 0 132px 42px rgb(110 193 255 / 0.16),
+      0 0 300px 98px rgb(110 193 255 / 0.1);
+  }
+  100% {
+    opacity: 0;
+    box-shadow:
+      0 0 0 2px rgb(210 244 255 / 0),
+      0 0 0 0 rgb(141 222 255 / 0),
+      0 0 0 0 rgb(103 186 255 / 0),
+      0 0 0 0 rgb(103 186 255 / 0);
+  }
 }

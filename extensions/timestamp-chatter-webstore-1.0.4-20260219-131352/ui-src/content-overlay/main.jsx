@@ -118,7 +118,8 @@ function LaneCards({ laneKey, cards, runtimeConfig, onCardClick }) {
             'tc-react-hosted-card',
             phaseClass(entry.phase),
             entry.accentClass || '',
-            entry.rubberbandPulse ? 'accent-rubberband' : ''
+            entry.rubberbandPulse ? 'accent-rubberband' : '',
+            entry.rubberbandPulse ? 'accent-landing-glow' : ''
           ].filter(Boolean).join(' ')}
           style={{
             order: String(entry.order ?? 0),

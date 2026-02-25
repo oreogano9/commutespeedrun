@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Palette, Layout, Sliders, Plus, Copy, Trash2, Edit3,
   Check, X, Sparkles, Orbit, Wind, ZapOff, ChevronLeft,
-  ChevronRight, Layers, RotateCcw, RotateCw, GripVertical
+  ChevronRight, Layers, RotateCcw, RotateCw, GripVertical, Moon, Sun
 } from 'lucide-react';
 import { NotificationCard } from '../shared/NotificationCard.jsx';
 
@@ -10,6 +10,7 @@ const themeV2 = globalThis.TimestampChatterThemeCatalogV2 || null;
 const STORAGE_LOCAL_KEY = themeV2?.THEME_CATALOG_V2_KEY || 'themeCatalogV2';
 const STORAGE_REV_KEY = themeV2?.THEME_CATALOG_V2_REVISION_KEY || 'themeCatalogV2Revision';
 const STORAGE_VER_KEY = themeV2?.THEME_CATALOG_V2_SCHEMA_VERSION_KEY || 'themeCatalogV2SchemaVersion';
+const EDITOR_COLOR_MODE_KEY = 'timestampChatterThemeEditorColorMode';
 
 const initialThemes = [
   {
@@ -83,6 +84,7 @@ const EFFECTS = [
   { id: 'comet-trail', label: 'Comet Trail', icon: <ChevronRight size={14} /> },
   { id: 'velvet-bloom', label: 'Velvet Bloom', icon: <Sparkles size={14} /> },
   { id: 'crystal-shift', label: 'Crystal Shift', icon: <Orbit size={14} /> },
+  { id: 'landing-glow', label: 'Landing Glow', icon: <Sparkles size={14} /> },
   { id: 'ac-leaf-drift', label: 'AC Leaf Drift', icon: <Wind size={14} /> },
   { id: 'ac-petal-breeze', label: 'AC Petal Breeze', icon: <Wind size={14} /> },
   { id: 'ac-bell-shimmer', label: 'AC Bell Shimmer', icon: <Sparkles size={14} /> },
@@ -217,6 +219,14 @@ export default function App() {
   const [bgIndex, setBgIndex] = useState(0);
   const [showAllTiers, setShowAllTiers] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState(null);
+  const [editorColorMode, setEditorColorMode] = useState(() => {
+    try {
+      const stored = localStorage.getItem(EDITOR_COLOR_MODE_KEY);
+      return stored === 'dark' ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  });
   const initializedRef = useRef(false);
   const saveTimerRef = useRef(null);
   const lastSavedSignatureRef = useRef('');
@@ -238,6 +248,20 @@ export default function App() {
     setSelectedThemeIndex(themeIdx);
     setSelectedTierIndex(tierIdx);
   }, [history, historyPointer, selectedThemeIndex, selectedTierIndex]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(EDITOR_COLOR_MODE_KEY, editorColorMode);
+    } catch {}
+    try {
+      document.body.classList.toggle('tc-theme-editor-body-dark', editorColorMode === 'dark');
+    } catch {}
+    return () => {
+      try {
+        document.body.classList.remove('tc-theme-editor-body-dark');
+      } catch {}
+    };
+  }, [editorColorMode]);
 
   useEffect(() => {
     (async () => {
@@ -441,7 +465,10 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-4 md:p-8 font-sans text-slate-900">
+    <div
+      className="tc-theme-editor min-h-screen bg-slate-100 p-4 md:p-8 font-sans text-slate-900"
+      data-color-mode={editorColorMode}
+    >
       <input
         ref={importFileInputRef}
         type="file"
@@ -462,6 +489,14 @@ export default function App() {
             <div className="flex gap-2">
               <button onClick={undo} disabled={historyPointer === 0} className={`${SOFT_ICON_BUTTON} disabled:opacity-20`} title="Undo"><RotateCcw size={20} /></button>
               <button onClick={redo} disabled={historyPointer === history.length - 1} className={`${SOFT_ICON_BUTTON} disabled:opacity-20`} title="Redo"><RotateCw size={20} /></button>
+              <button
+                onClick={() => setEditorColorMode((prev) => (prev === 'dark' ? 'light' : 'dark'))}
+                className={`${SOFT_ICON_BUTTON}`}
+                title={editorColorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                aria-label={editorColorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {editorColorMode === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
             </div>
           </div>
 

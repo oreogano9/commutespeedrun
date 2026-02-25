@@ -13,8 +13,6 @@ let geometricTierRankByCommentSource = new Map();
 let currentVideoId = null;
 let laneElements = new Map();
 let activeTierThresholds = Object.create(null);
-let nonPopularityPrimaryThreshold = 0;
-let nonPopularityEliteThreshold = Number.POSITIVE_INFINITY;
 let eyeToggleElement = null;
 let notificationsMutedByEye = false;
 let isVideoHovering = false;
@@ -49,20 +47,17 @@ const DEFAULT_OVERLAY_DARKNESS = 90;
 const DEFAULT_DEBUG_MODE = false;
 const DEFAULT_EARLY_MODE_ENABLED = false;
 const DEFAULT_FOLLOW_PLAYBACK_SPEED = true;
+const DEFAULT_CLICK_BACK_CONTEXT_SECONDS =
+  settingsSchema?.defaults?.clickBackContextSeconds ?? 5;
 const DEFAULT_EARLY_SECONDS = 5;
 const DEFAULT_TIMESTAMP_ACCENT_EFFECT = "rubberband";
 const DEFAULT_REVERSE_STACK_ORDER = false;
 const DEFAULT_PRIORITY_SCORING_ENABLED = true;
 const DEFAULT_PRIORITY_LIKES_WEIGHT = 1;
 const DEFAULT_TOP_LIKED_THRESHOLD_PERCENT = 12;
-const DEFAULT_POPULARITY_MODE_ENABLED = true;
 const DEFAULT_HEATMAP_ENABLED =
   settingsSchema?.defaults?.heatmapEnabled ?? true;
 const DEFAULT_HEATMAP_INTENSITY = 500;
-const DEFAULT_ROUTING_ENABLED = false;
-const DEFAULT_ROUTING_THRESHOLD = 80;
-const DEFAULT_ROUTING_SHORT_CORNER = "bottom-left";
-const DEFAULT_ROUTING_LONG_CORNER = "top-right";
 const DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS =
   settingsSchema?.defaults?.showAuthorInNotifications ?? true;
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
@@ -75,7 +70,7 @@ const DEFAULT_STACK_OPACITY_FADE_START =
 const DEFAULT_STACK_OPACITY_FADE_STEP_PERCENT =
   settingsSchema?.defaults?.stackOpacityFadeStepPercent ?? 20;
 const DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS = true;
-const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = true;
+const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED = false;
 const DEFAULT_PRESET_PROFILE = "balanced";
 const MINIMAL_MODE_BACKUP_SYNC_KEY = "minimalModeBackupV1";
 const DEFAULT_RARITY_SKIN = "default";
@@ -101,20 +96,16 @@ let overlayDarkness = DEFAULT_OVERLAY_DARKNESS;
 let debugMode = DEFAULT_DEBUG_MODE;
 let earlyModeEnabled = DEFAULT_EARLY_MODE_ENABLED;
 let followPlaybackSpeed = DEFAULT_FOLLOW_PLAYBACK_SPEED;
+let clickBackContextSeconds = DEFAULT_CLICK_BACK_CONTEXT_SECONDS;
 let earlySeconds = DEFAULT_EARLY_SECONDS;
 let timestampAccentEffect = DEFAULT_TIMESTAMP_ACCENT_EFFECT;
 let reverseStackOrder = DEFAULT_REVERSE_STACK_ORDER;
 let priorityScoringEnabled = DEFAULT_PRIORITY_SCORING_ENABLED;
 let priorityLikesWeight = DEFAULT_PRIORITY_LIKES_WEIGHT;
 let topLikedThresholdPercent = DEFAULT_TOP_LIKED_THRESHOLD_PERCENT;
-let popularityModeEnabled = DEFAULT_POPULARITY_MODE_ENABLED;
 let heatmapEnabled = DEFAULT_HEATMAP_ENABLED;
 let timelineMarkersEnabled = settingsSchema?.defaults?.timelineMarkersEnabled ?? true;
 let heatmapIntensity = DEFAULT_HEATMAP_INTENSITY;
-let routingEnabled = DEFAULT_ROUTING_ENABLED;
-let routingThreshold = DEFAULT_ROUTING_THRESHOLD;
-let routingShortCorner = DEFAULT_ROUTING_SHORT_CORNER;
-let routingLongCorner = DEFAULT_ROUTING_LONG_CORNER;
 let showAuthorInNotifications = DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS;
 let showLikesInNotifications = DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS;
 let showUpcomingDot = DEFAULT_SHOW_UPCOMING_DOT;
@@ -200,7 +191,10 @@ const MIN_DIAMOND_TIER_GAP_FROM_GOLD = 10;
 const MIN_DIAMOND_TIER_GAP_FROM_PLATINUM = 8;
 const MIN_PURPLE_TIER_GAP_FROM_DIAMOND = 14;
 const MIN_RUBY_TIER_GAP_FROM_PURPLE = 20;
-const CLICK_CONTEXT_SECONDS = 2;
+const MIN_CLICK_BACK_CONTEXT_SECONDS =
+  settingsSchema?.limits?.clickBackContextSeconds?.min ?? 0;
+const MAX_CLICK_BACK_CONTEXT_SECONDS =
+  settingsSchema?.limits?.clickBackContextSeconds?.max ?? 30;
 const CLICK_LOCK_FUZZ_SECONDS = 0.35;
 const LANDING_RUBBERBAND_FUZZ_SECONDS = 0.08;
 const LANDING_RUBBERBAND_DURATION_MS = 1000;
@@ -483,6 +477,17 @@ let quickMenuStatusText = "";
 let quickMenuStatusTimerId = null;
 let quickMenuGlobalDocumentHandlersAttached = false;
 let quickMenuMenuElement = null;
+const QUICK_MENU_SCAN_DEBUG_MAX_ENTRIES = 20;
+let quickMenuScanDebugEntries = [];
+let tabSessionRaritySkinOverride = null;
+let clickedNotificationPrioritySeq = 0;
+const QUICK_MENU_RARE_COMMENTS_PRESETS = Object.freeze([
+  { label: "Very low", ratio: 3.0 },
+  { label: "Low", ratio: 2.5 },
+  { label: "Medium", ratio: 2.0 },
+  { label: "High", ratio: 1.5 },
+  { label: "Very High", ratio: 1.05 }
+]);
 
 function isTabOverlayEnabled() {
   return !notificationsMutedByEye;
@@ -512,7 +517,7 @@ function resumeTimestampRuntime({ runScan = true } = {}) {
   if (runScan) {
     const videoId = currentVideoId || getVideoId();
     if (videoId) {
-      scheduleCommentsRequest(videoId, 0, 0);
+      scheduleCommentsRequest(videoId, 0, 0, "resume_runtime");
     }
   }
 }
@@ -701,6 +706,80 @@ function setQuickMenuStatus(message = "", timeoutMs = 1600) {
   updateEyeIconElement(true);
 }
 
+function formatQuickDebugClockTime(timestampMs) {
+  const date = new Date(Number(timestampMs) || Date.now());
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function normalizeQuickMenuRarityGeometricRatio(value) {
+  return clamp(
+    Number(value ?? DEFAULT_RARITY_GEOMETRIC_RATIO),
+    MIN_RARITY_GEOMETRIC_RATIO,
+    MAX_RARITY_GEOMETRIC_RATIO
+  );
+}
+
+function getQuickMenuRareCommentsPresetByIndex(index) {
+  const safeIndex = clamp(
+    Math.round(Number(index || 0)),
+    0,
+    Math.max(0, QUICK_MENU_RARE_COMMENTS_PRESETS.length - 1)
+  );
+  return QUICK_MENU_RARE_COMMENTS_PRESETS[safeIndex] || QUICK_MENU_RARE_COMMENTS_PRESETS[2];
+}
+
+function getQuickMenuRareCommentsPresetIndexForRatio(ratio) {
+  const normalized = Number(normalizeQuickMenuRarityGeometricRatio(ratio).toFixed(2));
+  const exact = QUICK_MENU_RARE_COMMENTS_PRESETS.findIndex(
+    (preset) => Number(preset.ratio.toFixed(2)) === normalized
+  );
+  if (exact >= 0) {
+    return { index: exact, exact: true };
+  }
+  let nearestIndex = 0;
+  let nearestDiff = Number.POSITIVE_INFINITY;
+  QUICK_MENU_RARE_COMMENTS_PRESETS.forEach((preset, index) => {
+    const diff = Math.abs(Number(preset.ratio) - normalized);
+    if (diff < nearestDiff) {
+      nearestDiff = diff;
+      nearestIndex = index;
+    }
+  });
+  return { index: nearestIndex, exact: false };
+}
+
+function updateQuickMenuRareCommentsControl(menu) {
+  if (!menu) {
+    return;
+  }
+  const slider = menu.querySelector(".js-rare-comments-slider");
+  const value = menu.querySelector(".js-rare-comments-value");
+  if (!slider || !value) {
+    return;
+  }
+  const match = getQuickMenuRareCommentsPresetIndexForRatio(rarityGeometricRatio);
+  const preset = getQuickMenuRareCommentsPresetByIndex(match.index);
+  slider.value = String(match.index);
+  value.textContent = match.exact ? preset.label : "Custom (Advanced)";
+}
+
+function pushQuickMenuScanDebugEvent(source, detail = "") {
+  const sourceText = String(source || "unknown");
+  const detailText = String(detail || "").trim();
+  quickMenuScanDebugEntries.unshift({
+    at: Date.now(),
+    source: sourceText,
+    detail: detailText
+  });
+  if (quickMenuScanDebugEntries.length > QUICK_MENU_SCAN_DEBUG_MAX_ENTRIES) {
+    quickMenuScanDebugEntries.length = QUICK_MENU_SCAN_DEBUG_MAX_ENTRIES;
+  }
+  updateEyeIconElement();
+}
+
 function getQuickMenuLoadStatusText() {
   const timestampsCount = Number.isFinite(comments?.length) ? comments.length : 0;
   if (commentsLoadComplete) {
@@ -719,6 +798,47 @@ function getQuickMenuLoadStatusText() {
     return `Timestamps loading...\n(${pagesFetched} pages scanned so far, ${timestampsCount} timestamps)`;
   }
   return `Timestamps loading...\n(${timestampsCount} timestamps)`;
+}
+
+function getQuickMenuTierCountDebugData() {
+  const tierKeys = getTierKeys();
+  if (!Array.isArray(tierKeys) || tierKeys.length === 0) {
+    return [];
+  }
+  const countsByTier = new Map();
+  const likeValuesByTier = new Map();
+  tierKeys.forEach((tierKey) => countsByTier.set(String(tierKey), 0));
+  tierKeys.forEach((tierKey) => likeValuesByTier.set(String(tierKey), new Set()));
+  const loadedComments = Array.isArray(comments) ? comments : [];
+  loadedComments.forEach((comment) => {
+    if (!comment || isCommentTierHidden(comment)) {
+      return;
+    }
+    const likesCount = Number(comment?.likes || 0);
+    const tierKey = getTierName(getTierRank(likesCount, comment));
+    if (!countsByTier.has(tierKey)) {
+      countsByTier.set(tierKey, 0);
+    }
+    if (!likeValuesByTier.has(tierKey)) {
+      likeValuesByTier.set(tierKey, new Set());
+    }
+    countsByTier.set(tierKey, Number(countsByTier.get(tierKey) || 0) + 1);
+    likeValuesByTier.get(tierKey).add(Math.max(0, Math.floor(likesCount)));
+  });
+  return tierKeys.map((tierKey, index) => {
+    const tierConfig = getTierConfigByKey(tierKey);
+    const label =
+      typeof tierConfig?.label === "string" && tierConfig.label.length > 0
+        ? tierConfig.label
+        : `(Tier ${index + 1})`;
+    const likeValues = Array.from(likeValuesByTier.get(tierKey) || []);
+    return {
+      tierKey,
+      label,
+      count: Number(countsByTier.get(tierKey) || 0),
+      likePoolCount: likeValues.length
+    };
+  });
 }
 
 function getQuickMenuSkinEntries() {
@@ -841,6 +961,11 @@ async function sendQuickOverlaySettingPatch(patch = {}) {
       if (Object.prototype.hasOwnProperty.call(patch, "raritySkin")) {
         storagePatch.raritySkin = normalizeRaritySkin(patch.raritySkin);
         storagePatch.activeRaritySkinId = storagePatch.raritySkin;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "rarityGeometricRatio")) {
+        storagePatch.rarityGeometricRatio = normalizeQuickMenuRarityGeometricRatio(
+          patch.rarityGeometricRatio
+        );
       }
       if (Object.keys(storagePatch).length > 0) {
         const maybePromise = chrome.storage.sync.set(storagePatch);
@@ -989,6 +1114,7 @@ async function setRaritySkinFromQuickMenu(nextSkinId) {
     return;
   }
   raritySkin = nextSkin;
+  tabSessionRaritySkinOverride = nextSkin;
   const activeRaritySkinConfig = rarityShared
     ? rarityShared.deepClone(rarityShared.getSkinById(raritySkinCatalog, nextSkin))
     : null;
@@ -1018,6 +1144,7 @@ async function triggerRescanFromQuickMenu() {
     return;
   }
   setQuickMenuStatus("Rescan started.");
+  pushQuickMenuScanDebugEvent("manual_rescan", `video=${videoId}`);
   try {
     await chrome.runtime.sendMessage({ type: "rescan_now", videoId });
   } catch (error) {
@@ -1079,10 +1206,30 @@ function ensureQuickMenuContent() {
         <div class="menu-item" data-action="toggle-heatmap"><span>Heatmap</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="toggle-dot"><span>Warning dot</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="open-skins"><span>Rarity skin</span><span class="selected-value js-current-skin"></span></div>
+        <div class="menu-item-status menu-item-status-control" data-role="rare-comments-control">
+          <div class="menu-control-row">
+            <span>Amount of rare comments</span>
+            <span class="selected-value js-rare-comments-value">Medium</span>
+          </div>
+          <input class="menu-control-slider js-rare-comments-slider" type="range" min="0" max="4" step="1" value="2" />
+        </div>
         <div class="menu-item" data-action="rescan"><span>Rescan Comments</span><span class="selected-value">Click to scan now</span></div>
         <div class="menu-item menu-item-status menu-item-status-load" data-role="load-status">
           <span class="selected-value js-load-status-text"></span>
           <span class="selected-value js-load-status-note" hidden></span>
+        </div>
+        <div class="menu-item-status menu-item-status-debug" data-role="debug-root" hidden>
+          <details class="js-debug-details">
+            <summary class="js-debug-summary">Debug</summary>
+            <div class="menu-debug-section" data-role="tier-debug" hidden>
+              <div class="menu-debug-title js-tier-debug-summary">Notifications per tier</div>
+              <div class="js-tier-debug-body"></div>
+            </div>
+            <div class="menu-debug-section" data-role="scan-debug" hidden>
+              <div class="menu-debug-title js-scan-debug-summary">Scan / rescan sources</div>
+              <div class="js-scan-debug-body"></div>
+            </div>
+          </details>
         </div>
         <div class="menu-item menu-item-status" data-role="status" hidden><span class="selected-value js-status-text"></span></div>
       </div>
@@ -1120,12 +1267,12 @@ function ensureQuickMenuContent() {
   });
 
   menu.addEventListener("click", async (event) => {
+    event.stopPropagation();
     const item = event.target.closest(".menu-item, .menu-header");
     if (!item) {
       return;
     }
     event.preventDefault();
-    event.stopPropagation();
     const action = item.getAttribute("data-action") || "";
     if (action === "toggle-global") {
       await setGlobalOverlayActiveFromQuickMenu(!isActive);
@@ -1169,6 +1316,57 @@ function ensureQuickMenuContent() {
       return;
     }
   });
+
+  const rareCommentsSlider = menu.querySelector(".js-rare-comments-slider");
+  if (rareCommentsSlider) {
+    rareCommentsSlider.addEventListener("input", () => {
+      const preset = getQuickMenuRareCommentsPresetByIndex(rareCommentsSlider.value);
+      const value = menu.querySelector(".js-rare-comments-value");
+      if (value) {
+        value.textContent = preset?.label || "Medium";
+      }
+    });
+    rareCommentsSlider.addEventListener("change", async () => {
+      const preset = getQuickMenuRareCommentsPresetByIndex(rareCommentsSlider.value);
+      const nextRatio = normalizeQuickMenuRarityGeometricRatio(preset?.ratio);
+      if (Math.abs(nextRatio - rarityGeometricRatio) < 0.0001) {
+        updateQuickMenuRareCommentsControl(menu);
+        return;
+      }
+      rarityGeometricRatio = nextRatio;
+      recomputeLikeTierThresholds();
+      refreshActiveCardVisualsForCurrentSkin();
+      pushReactNotificationOverlayState();
+      scheduleRenderTimeMarkers();
+      const video = getVideo();
+      if (video && !isAdPlaying()) {
+        scheduleReconcile(video.currentTime);
+      }
+      await sendQuickOverlaySettingPatch({ rarityGeometricRatio: nextRatio });
+      updateQuickMenuRareCommentsControl(menu);
+      setQuickMenuStatus(`Rare comments: ${preset?.label || "Custom"}`);
+    });
+  }
+
+  const debugDetails = menu.querySelector(".js-debug-details");
+  if (debugDetails) {
+    debugDetails.addEventListener("toggle", () => {
+      try {
+        if (debugDetails.open) {
+          menu.scrollTop = menu.scrollHeight;
+        }
+        positionQuickMenu(button, menu);
+      } catch (_error) {}
+      requestAnimationFrame(() => {
+        try {
+          if (debugDetails.open) {
+            menu.scrollTop = menu.scrollHeight;
+          }
+          positionQuickMenu(button, menu);
+        } catch (_error) {}
+      });
+    });
+  }
 
   attachQuickMenuGlobalHandlersOnce();
   positionQuickMenu(button, menu);
@@ -1228,6 +1426,7 @@ function updateEyeIconElement(force = false) {
           : null;
       currentSkinLabel.textContent = `${currentSkinConfig?.name || raritySkin}`;
     }
+    updateQuickMenuRareCommentsControl(menu);
 
     const statusRow = menu.querySelector('[data-role="status"]');
     const statusText = menu.querySelector(".js-status-text");
@@ -1248,6 +1447,49 @@ function updateEyeIconElement(force = false) {
       loadStatusNote.textContent = showHeatmapWaitNote
         ? "Heatmap will display after the scan finishes"
         : "";
+    }
+    const debugRootRow = menu.querySelector('[data-role="debug-root"]');
+    const tierDebugRow = menu.querySelector('[data-role="tier-debug"]');
+    const tierDebugSummary = menu.querySelector(".js-tier-debug-summary");
+    const tierDebugBody = menu.querySelector(".js-tier-debug-body");
+    if (tierDebugRow && tierDebugSummary && tierDebugBody) {
+      const tierCounts = getQuickMenuTierCountDebugData();
+      const totalVisibleNotifications = tierCounts.reduce(
+        (sum, entry) => sum + Math.max(0, Number(entry?.count || 0)),
+        0
+      );
+      tierDebugRow.hidden = tierCounts.length === 0;
+      tierDebugSummary.textContent = `Notifications per tier (${totalVisibleNotifications})`;
+      tierDebugBody.textContent = tierCounts
+        .map((entry) => {
+          const likePoolCount = Math.max(0, Number(entry.likePoolCount || 0));
+          const likeSuffix =
+            likePoolCount > 0
+              ? ` - ${likePoolCount} like pool${likePoolCount === 1 ? "" : "s"}`
+              : "";
+          return `${entry.label}: ${entry.count}${likeSuffix}`;
+        })
+        .join("\n");
+    }
+    const scanDebugRow = menu.querySelector('[data-role="scan-debug"]');
+    const scanDebugSummary = menu.querySelector(".js-scan-debug-summary");
+    const scanDebugBody = menu.querySelector(".js-scan-debug-body");
+    if (scanDebugRow && scanDebugSummary && scanDebugBody) {
+      const entries = Array.isArray(quickMenuScanDebugEntries) ? quickMenuScanDebugEntries : [];
+      scanDebugRow.hidden = entries.length === 0;
+      scanDebugSummary.textContent = `Scan / rescan sources (${entries.length})`;
+      scanDebugBody.textContent = entries
+        .map((entry) => {
+          const time = formatQuickDebugClockTime(entry.at);
+          const detail = entry.detail ? ` - ${entry.detail}` : "";
+          return `[${time}] ${entry.source}${detail}`;
+        })
+        .join("\n");
+    }
+    if (debugRootRow) {
+      const hideTier = !tierDebugRow || tierDebugRow.hidden;
+      const hideScan = !scanDebugRow || scanDebugRow.hidden;
+      debugRootRow.hidden = hideTier && hideScan;
     }
 
     const skinList = menu.querySelector(".js-skin-list");
@@ -1514,24 +1756,6 @@ function getTierThresholdByKey(tierKey) {
   return value;
 }
 
-function getNonPopularityTierKeys() {
-  const config = getRaritySkinConfig();
-  const tierKeys = getTierKeys();
-  const defaultPrimary = tierKeys[Math.min(1, Math.max(0, tierKeys.length - 1))] || tierKeys[0];
-  const defaultElite = tierKeys[Math.max(0, tierKeys.length - 1)] || defaultPrimary;
-  return {
-    base: tierKeys[0] || "silver",
-    primary:
-      config.nonPopularityPrimaryTierKey && tierKeys.includes(config.nonPopularityPrimaryTierKey)
-        ? config.nonPopularityPrimaryTierKey
-        : defaultPrimary,
-    elite:
-      config.nonPopularityEliteTierKey && tierKeys.includes(config.nonPopularityEliteTierKey)
-        ? config.nonPopularityEliteTierKey
-        : defaultElite
-  };
-}
-
 function debugLog(...args) {
   if (debugMode) {
     console.log("[TimestampChatter]", ...args);
@@ -1584,16 +1808,6 @@ function getTierName(tierRank) {
     return "silver";
   }
   const safeRank = clamp(Number(tierRank) || 0, 0, tierKeys.length - 1);
-  if (!popularityModeEnabled) {
-    const collapsedKeys = getNonPopularityTierKeys();
-    if (safeRank >= 2) {
-      return collapsedKeys.elite;
-    }
-    if (safeRank >= 1) {
-      return collapsedKeys.primary;
-    }
-    return collapsedKeys.base;
-  }
   return tierKeys[safeRank] || tierKeys[0];
 }
 
@@ -1647,6 +1861,30 @@ function getCurrentSkinStyleConfig() {
   return skinConfig?.style || {};
 }
 
+function mapStoredAppearanceValueToCenteredDeltaRuntime(storedValue, defaultValue) {
+  const safeStored = clamp(Number(storedValue ?? defaultValue), 0, 100);
+  const safeDefault = clamp(Number(defaultValue ?? 50), 0, 100);
+  if (safeStored >= safeDefault) {
+    const den = Math.max(1, 100 - safeDefault);
+    return ((safeStored - safeDefault) / den) * 100;
+  }
+  const den = Math.max(1, safeDefault);
+  return -((safeDefault - safeStored) / den) * 100;
+}
+
+function getSkinAppearanceLocalModifiers() {
+  return {
+    opacityDeltaPercent: mapStoredAppearanceValueToCenteredDeltaRuntime(
+      overlayGlassiness,
+      DEFAULT_OVERLAY_GLASSINESS
+    ),
+    darknessDeltaPercent: mapStoredAppearanceValueToCenteredDeltaRuntime(
+      overlayDarkness,
+      DEFAULT_OVERLAY_DARKNESS
+    )
+  };
+}
+
 function getTierEffects(tierConfig, tierRank = 0) {
   const configured = Array.isArray(tierConfig?.effects)
     ? tierConfig.effects.map((entry) => String(entry).toLowerCase())
@@ -1695,6 +1933,34 @@ function parseHexColorToRgb(colorValue) {
     return null;
   }
   return { r, g, b };
+}
+
+function rgbToHexColor(rgb) {
+  if (!rgb) {
+    return null;
+  }
+  const toHex = (value) =>
+    clamp(Math.round(Number(value) || 0), 0, 255).toString(16).padStart(2, "0");
+  return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`;
+}
+
+function adjustHexColorForDarknessDelta(colorValue, darknessDeltaPercent) {
+  const rgb = parseHexColorToRgb(colorValue);
+  if (!rgb) {
+    return String(colorValue || "");
+  }
+  const delta = clamp(Number(darknessDeltaPercent || 0), -100, 100);
+  if (Math.abs(delta) < 0.001) {
+    return rgbToHexColor(rgb) || String(colorValue || "");
+  }
+  const strength = Math.min(1, Math.abs(delta) / 100) * 0.8;
+  const target = delta > 0 ? 255 : 0; // positive = brighter, negative = darker
+  const mixed = {
+    r: rgb.r + (target - rgb.r) * strength,
+    g: rgb.g + (target - rgb.g) * strength,
+    b: rgb.b + (target - rgb.b) * strength
+  };
+  return rgbToHexColor(mixed) || String(colorValue || "");
 }
 
 function relativeLuminanceFromHex(colorValue) {
@@ -2274,8 +2540,6 @@ function computeGeometricTierRanksBySource(sourceComments) {
     return result;
   }
 
-  const provisional = computeGeometricTierRanksBySourceLegacy(sourceComments);
-
   const groupsLowToHigh = [];
   for (const entry of entries.slice().sort((a, b) => {
     if (a.likes !== b.likes) {
@@ -2285,43 +2549,51 @@ function computeGeometricTierRanksBySource(sourceComments) {
   })) {
     const lastGroup = groupsLowToHigh[groupsLowToHigh.length - 1];
     if (!lastGroup || lastGroup.likes !== entry.likes) {
-      groupsLowToHigh.push({ likes: entry.likes, items: [entry], assignedRank: 0, locked: false });
+      groupsLowToHigh.push({ likes: entry.likes, items: [entry], assignedRank: 0 });
     } else {
       lastGroup.items.push(entry);
     }
   }
 
-  for (const group of groupsLowToHigh) {
-    const countsByRank = new Map();
-    for (const entry of group.items) {
-      const rank = clamp(
-        Number(provisional.get(entry.sourceKey) || 0),
-        0,
-        Math.max(0, tierCount - 1)
-      );
-      countsByRank.set(rank, Number(countsByRank.get(rank) || 0) + 1);
-    }
-    let selectedRank = 0;
-    let bestCount = -1;
-    for (const [rank, count] of countsByRank.entries()) {
-      if (count > bestCount) {
-        bestCount = count;
-        selectedRank = rank;
-        continue;
-      }
-      if (count === bestCount && rank > selectedRank) {
-        selectedRank = rank;
-      }
-    }
-    group.assignedRank = clamp(selectedRank, 0, Math.max(0, tierCount - 1));
-  }
+  const groupCount = groupsLowToHigh.length;
+  const maxRank = Math.max(0, tierCount - 1);
 
-  // Enforce monotonic mapping by like count: more likes can never map to a lower tier.
-  let previousRank = -Infinity;
-  for (const group of groupsLowToHigh) {
-    group.assignedRank = Math.max(group.assignedRank, previousRank);
-    group.assignedRank = clamp(group.assignedRank, 0, Math.max(0, tierCount - 1));
-    previousRank = group.assignedRank;
+  if (groupCount < tierCount) {
+    // Not enough distinct like pools to fill all tiers: use the lowest N tiers.
+    for (let index = 0; index < groupCount; index += 1) {
+      groupsLowToHigh[index].assignedRank = clamp(index, 0, maxRank);
+    }
+  } else {
+    // Pool-first assignment: guarantee at least one like pool in every tier,
+    // then distribute the remaining pools with geometric weighting.
+    const quotasWorstToBest = new Array(tierCount).fill(1);
+    const extraPoolCount = groupCount - tierCount;
+    if (extraPoolCount > 0) {
+      const extraQuotasBestToWorst = allocateIntegersByWeights(
+        extraPoolCount,
+        geometricWeights(tierCount, rarityGeometricRatio)
+      );
+      for (let bestTierIndex = 0; bestTierIndex < tierCount; bestTierIndex += 1) {
+        const runtimeTierRank = maxRank - bestTierIndex;
+        quotasWorstToBest[runtimeTierRank] += Math.max(
+          0,
+          Number(extraQuotasBestToWorst[bestTierIndex] || 0)
+        );
+      }
+    }
+
+    let cursor = 0;
+    for (let runtimeTierRank = 0; runtimeTierRank < tierCount; runtimeTierRank += 1) {
+      const take = Math.max(1, Number(quotasWorstToBest[runtimeTierRank] || 1));
+      for (let offset = 0; offset < take && cursor < groupCount; offset += 1) {
+        groupsLowToHigh[cursor].assignedRank = runtimeTierRank;
+        cursor += 1;
+      }
+    }
+    while (cursor < groupCount) {
+      groupsLowToHigh[cursor].assignedRank = maxRank;
+      cursor += 1;
+    }
   }
 
   for (const group of groupsLowToHigh) {
@@ -2371,9 +2643,6 @@ function computeTierThresholds(sourceComments, precomputedRanks = null) {
 function recomputeLikeTierThresholds() {
   geometricTierRankByCommentSource = computeGeometricTierRanksBySource(comments);
   activeTierThresholds = computeTierThresholds(comments, geometricTierRankByCommentSource);
-  const nonPopularityKeys = getNonPopularityTierKeys();
-  nonPopularityPrimaryThreshold = getTierThresholdByKey(nonPopularityKeys.primary);
-  nonPopularityEliteThreshold = getTierThresholdByKey(nonPopularityKeys.elite);
 }
 
 function compareByPriority(a, b) {
@@ -2389,13 +2658,7 @@ function compareByPriority(a, b) {
 }
 
 function resolveCommentCorner(comment) {
-  if (!routingEnabled) {
-    return position;
-  }
-  if ((comment?.text || "").length <= routingThreshold) {
-    return routingShortCorner;
-  }
-  return routingLongCorner;
+  return position;
 }
 
 function getTierRank(likesCount, comment = null) {
@@ -2404,30 +2667,20 @@ function getTierRank(likesCount, comment = null) {
     return 0;
   }
 
-  if (popularityModeEnabled) {
-    if (comment) {
-      const sourceKey = getCommentSourceKey(comment);
-      if (sourceKey && geometricTierRankByCommentSource.has(sourceKey)) {
-        const mapped = Number(geometricTierRankByCommentSource.get(sourceKey));
-        const maxRank = Math.max(0, getTierKeys().length - 1);
-        return clamp(mapped, 0, maxRank);
-      }
+  if (comment) {
+    const sourceKey = getCommentSourceKey(comment);
+    if (sourceKey && geometricTierRankByCommentSource.has(sourceKey)) {
+      const mapped = Number(geometricTierRankByCommentSource.get(sourceKey));
+      const maxRank = Math.max(0, getTierKeys().length - 1);
+      return clamp(mapped, 0, maxRank);
     }
-    const tierKeys = getTierKeys();
-    for (let index = tierKeys.length - 1; index >= 1; index -= 1) {
-      const tierKey = tierKeys[index];
-      if (numericLikes >= getTierThresholdByKey(tierKey)) {
-        return index;
-      }
+  }
+  const tierKeys = getTierKeys();
+  for (let index = tierKeys.length - 1; index >= 1; index -= 1) {
+    const tierKey = tierKeys[index];
+    if (numericLikes >= getTierThresholdByKey(tierKey)) {
+      return index;
     }
-    return 0;
-  }
-
-  if (numericLikes >= nonPopularityEliteThreshold) {
-    return 2;
-  }
-  if (numericLikes >= nonPopularityPrimaryThreshold) {
-    return 1;
   }
   return 0;
 }
@@ -2450,6 +2703,13 @@ function getTierOrderForCorner(corner, tierRank, likesCount = 0) {
   const tierBase = (isTopCorner ? -safeTier : safeTier) * tierBand;
   // Within the same tier, higher likes gets a larger order, so it appears lower in the stack.
   return tierBase + safeLikes;
+}
+
+function getPinnedOrderTowardCorner(corner, pinSeq = 0) {
+  const safeSeq = Math.max(0, Math.floor(Number(pinSeq) || 0));
+  const isTopCorner = corner === "top-left" || corner === "top-right";
+  // Lanes sort ascending by order. Use extremes to bring clicked cards toward the anchor edge.
+  return isTopCorner ? (-1_000_000_000_000 + safeSeq) : (1_000_000_000_000 - safeSeq);
 }
 
 function formatLikesLabel(likesCount) {
@@ -2536,7 +2796,7 @@ function applyFreeLanePosition() {
   if (!CARD_DRAG_ENABLED) {
     return;
   }
-  if (routingEnabled || !freePositionEnabled) {
+  if (!freePositionEnabled) {
     return;
   }
   const lane = getLaneElement(position);
@@ -2681,7 +2941,7 @@ function startCardDrag(event, card, initialCorner) {
   if (!CARD_DRAG_ENABLED) {
     return;
   }
-  if (!card || routingEnabled) {
+  if (!card) {
     return;
   }
   if (event.pointerType === "mouse" && event.button !== 0) {
@@ -2742,14 +3002,14 @@ function updateLaneVisibility() {
     if (!lane) {
       continue;
     }
-    const visible = routingEnabled || corner === position;
+    const visible = corner === position;
     lane.classList.toggle("hidden", !visible);
   }
   applyFreeLanePosition();
   updateEyeToggleVisibility();
 }
 
-function seekToCommentContext(comment, contextSeconds = 2) {
+function seekToCommentContext(comment, contextSeconds = DEFAULT_CLICK_BACK_CONTEXT_SECONDS) {
   const video = getVideo();
   const currentTime = Number(video?.currentTime || 0);
   const candidates =
@@ -2780,7 +3040,11 @@ function seekToCommentContext(comment, contextSeconds = 2) {
   return { targetTime, anchorTime: Number(closestTimestamp || 0) };
 }
 
-function setContextualVisibilityLock(comment, anchorTime, contextSeconds = CLICK_CONTEXT_SECONDS) {
+function setContextualVisibilityLock(
+  comment,
+  anchorTime,
+  contextSeconds = DEFAULT_CLICK_BACK_CONTEXT_SECONDS
+) {
   const commentKey = getCommentKey(comment);
   const anchor = Number(anchorTime);
   const context = Math.max(0, Number(contextSeconds || 0));
@@ -2878,8 +3142,7 @@ function setUpcomingDotVisible(visible) {
     !isActive ||
     notificationsMutedByEye ||
     !showUpcomingDot ||
-    position !== "bottom-left" ||
-    routingEnabled
+    position !== "bottom-left"
   ) {
     if (upcomingDotElement) {
       upcomingDotElement.classList.remove("visible");
@@ -2954,10 +3217,13 @@ function applyOverlayStyles() {
     return;
   }
 
+  // Legacy shell look uses stable defaults; user-facing appearance sliders now act as
+  // local skin modifiers applied non-destructively at render time.
   const glassNormalized =
-    clamp(overlayGlassiness, MIN_OVERLAY_GLASSINESS, MAX_OVERLAY_GLASSINESS) / 100;
+    clamp(DEFAULT_OVERLAY_GLASSINESS, MIN_OVERLAY_GLASSINESS, MAX_OVERLAY_GLASSINESS) / 100;
   const darknessNormalized =
-    clamp(overlayDarkness, MIN_OVERLAY_DARKNESS, MAX_OVERLAY_DARKNESS) / 100;
+    clamp(DEFAULT_OVERLAY_DARKNESS, MIN_OVERLAY_DARKNESS, MAX_OVERLAY_DARKNESS) / 100;
+  const { opacityDeltaPercent } = getSkinAppearanceLocalModifiers();
 
   const blurPx = (2 + glassNormalized * 22).toFixed(1);
   const glassTintAlpha = (0.04 + glassNormalized * 0.24).toFixed(3);
@@ -3010,7 +3276,7 @@ function applyOverlayStyles() {
   overlayElement.style.setProperty("--overlay-warning-glow-alpha", warningGlowAlpha);
   overlayElement.style.setProperty("--overlay-heatmap-alpha", heatmapAlpha);
   const skinPackOpacity = clamp(
-    Number(getCurrentSkinStyleConfig()?.packOpacity ?? packOpacity),
+    Number(getCurrentSkinStyleConfig()?.packOpacity ?? packOpacity) + (opacityDeltaPercent / 100) * 0.5,
     0.08,
     1
   );
@@ -3046,20 +3312,16 @@ async function getOverlaySettings() {
       "debugMode",
       "earlyModeEnabled",
       "followPlaybackSpeed",
+      "clickBackContextSeconds",
       "earlySeconds",
       "timestampAccentEffect",
       "reverseStackOrder",
       "priorityScoringEnabled",
       "priorityLikesWeight",
       "topLikedThresholdPercent",
-      "popularityModeEnabled",
       "timelineMarkersEnabled",
       "heatmapEnabled",
       "heatmapIntensity",
-      "routingEnabled",
-      "routingThreshold",
-      "routingShortCorner",
-      "routingLongCorner",
       "showAuthorInNotifications",
       "showLikesInNotifications",
       "showUpcomingDot",
@@ -3156,6 +3418,11 @@ async function getOverlaySettings() {
   debugMode = Boolean(values?.debugMode ?? DEFAULT_DEBUG_MODE);
   earlyModeEnabled = Boolean(values?.earlyModeEnabled ?? DEFAULT_EARLY_MODE_ENABLED);
   followPlaybackSpeed = Boolean(values?.followPlaybackSpeed ?? DEFAULT_FOLLOW_PLAYBACK_SPEED);
+  clickBackContextSeconds = clamp(
+    Number(values?.clickBackContextSeconds ?? DEFAULT_CLICK_BACK_CONTEXT_SECONDS),
+    MIN_CLICK_BACK_CONTEXT_SECONDS,
+    MAX_CLICK_BACK_CONTEXT_SECONDS
+  );
   earlySeconds = clamp(
     Number(values?.earlySeconds ?? DEFAULT_EARLY_SECONDS),
     MIN_EARLY_SECONDS,
@@ -3178,29 +3445,12 @@ async function getOverlaySettings() {
     MIN_TOP_LIKED_THRESHOLD_PERCENT,
     MAX_TOP_LIKED_THRESHOLD_PERCENT
   );
-  popularityModeEnabled = Boolean(
-    values?.popularityModeEnabled ?? DEFAULT_POPULARITY_MODE_ENABLED
-  );
   timelineMarkersEnabled = Boolean(values?.timelineMarkersEnabled ?? true);
   heatmapEnabled = Boolean(values?.heatmapEnabled ?? DEFAULT_HEATMAP_ENABLED);
   heatmapIntensity = clamp(
     Number(values?.heatmapIntensity ?? DEFAULT_HEATMAP_INTENSITY),
     MIN_HEATMAP_INTENSITY,
     MAX_HEATMAP_INTENSITY
-  );
-  routingEnabled = Boolean(values?.routingEnabled ?? DEFAULT_ROUTING_ENABLED);
-  routingThreshold = clamp(
-    Number(values?.routingThreshold ?? DEFAULT_ROUTING_THRESHOLD),
-    MIN_ROUTING_THRESHOLD,
-    MAX_ROUTING_THRESHOLD
-  );
-  routingShortCorner = normalizeCorner(
-    String(values?.routingShortCorner ?? DEFAULT_ROUTING_SHORT_CORNER),
-    DEFAULT_ROUTING_SHORT_CORNER
-  );
-  routingLongCorner = normalizeCorner(
-    String(values?.routingLongCorner ?? DEFAULT_ROUTING_LONG_CORNER),
-    DEFAULT_ROUTING_LONG_CORNER
   );
   presetProfile = String(values?.presetProfile ?? DEFAULT_PRESET_PROFILE) === "minimal"
     ? "minimal"
@@ -3246,12 +3496,18 @@ async function getOverlaySettings() {
     values?.experimentalGameSkinAutoEnabled ??
       DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED
   );
-  raritySkin = normalizeRaritySkin(
+  const storedPreferredRaritySkin = normalizeRaritySkin(
     String(
       values?.[SYNC_ACTIVE_RARITY_SKIN_ID_KEY] ??
         values?.raritySkin ??
         DEFAULT_RARITY_SKIN
     )
+  );
+  const sessionPreferredRaritySkin = tabSessionRaritySkinOverride
+    ? normalizeRaritySkin(tabSessionRaritySkinOverride)
+    : null;
+  raritySkin = normalizeRaritySkin(
+    String(sessionPreferredRaritySkin || storedPreferredRaritySkin || DEFAULT_RARITY_SKIN)
   );
   overlayRadius = getOverlayRadiusForSkin(raritySkin);
   rarityLogicMode = normalizeRarityLogicMode(
@@ -3304,7 +3560,8 @@ async function main() {
         Number(commentScanStartDelaySec ?? DEFAULT_COMMENT_SCAN_START_DELAY_SEC),
         MIN_COMMENT_SCAN_START_DELAY_SEC,
         MAX_COMMENT_SCAN_START_DELAY_SEC
-      ) * 1000
+      ) * 1000,
+      "startup_delay"
     );
   }
 }
@@ -3342,7 +3599,7 @@ function scheduleAutoSkinDetect(videoId, delayMs = AUTO_SKIN_DETECT_DELAY_MS) {
   }, Math.max(0, Number(delayMs) || 0));
 }
 
-function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0) {
+function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0, source = "unknown") {
   if (!videoId) {
     return;
   }
@@ -3352,6 +3609,12 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0) {
   if (commentsRequestRetryTimerId !== null) {
     clearTimeout(commentsRequestRetryTimerId);
   }
+  pushQuickMenuScanDebugEvent(
+    attempt > 0 ? `${source}_retry` : source,
+    attempt > 0
+      ? `attempt ${attempt + 1}, scheduled in ${Math.max(0, Math.round(Number(delayMs) || 0))}ms`
+      : `scheduled in ${Math.max(0, Math.round(Number(delayMs) || 0))}ms`
+  );
   commentsRequestRetryTimerId = setTimeout(async () => {
     commentsRequestRetryTimerId = null;
     if (currentVideoId !== videoId || getVideoId() !== videoId) {
@@ -3361,6 +3624,10 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0) {
       return;
     }
     try {
+      pushQuickMenuScanDebugEvent(
+        source,
+        `comments request sent${Boolean(clearTimestampCacheOnRefresh) ? " (forceRefresh)" : ""}`
+      );
       await chrome.runtime.sendMessage({
         type: "comments",
         video_id: videoId,
@@ -3375,7 +3642,8 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0) {
         scheduleCommentsRequest(
           videoId,
           attempt + 1,
-          COMMENTS_REQUEST_RETRY_DELAYS_MS[attempt]
+          COMMENTS_REQUEST_RETRY_DELAYS_MS[attempt],
+          source
         );
       }
     }
@@ -3861,7 +4129,7 @@ function ensureReactNotificationOverlayMounted() {
         const currentVideo = getVideo();
         const wasPaused = Boolean(currentVideo?.paused);
         const previousTime = Number(currentVideo?.currentTime || 0);
-        const seekResult = seekToCommentContext(comment, CLICK_CONTEXT_SECONDS);
+        const seekResult = seekToCommentContext(comment, clickBackContextSeconds);
         if (seekResult) {
           if (
             currentVideo &&
@@ -3874,8 +4142,18 @@ function ensureReactNotificationOverlayMounted() {
               playResult.catch(() => {});
             }
           }
-          setContextualVisibilityLock(comment, seekResult.anchorTime, CLICK_CONTEXT_SECONDS);
+          setContextualVisibilityLock(comment, seekResult.anchorTime, clickBackContextSeconds);
           armLandingRubberband(comment, seekResult.anchorTime);
+          if (cardState?.targetCorner) {
+            clickedNotificationPrioritySeq += 1;
+            cardState.pinnedTowardCorner = true;
+            cardState.pinnedPrioritySeq = clickedNotificationPrioritySeq;
+            cardState.order = getPinnedOrderTowardCorner(
+              cardState.targetCorner,
+              cardState.pinnedPrioritySeq
+            );
+            pushReactNotificationOverlayState();
+          }
           scheduleReconcile(seekResult.targetTime);
         }
       }
@@ -3913,22 +4191,51 @@ function buildReactTierForComment(tierName, tierConfig, tierRank = 0) {
   const themeTierByRank =
     themeTiers[Math.max(0, Math.min(themeTiers.length - 1, Number(tierRank || 0)))] || null;
   const themeTier = themeTierByKey || themeTierByRank;
+  const { opacityDeltaPercent, darknessDeltaPercent } = getSkinAppearanceLocalModifiers();
   const hasExplicitThemeTierName =
     Boolean(themeTier) &&
     Object.prototype.hasOwnProperty.call(themeTier, "name");
   const resolvedTierDisplayName = hasExplicitThemeTierName
     ? String(themeTier?.name ?? "")
     : getTierDisplayName(tierName);
+  const baseBody = String(
+    themeTier?.body ||
+      (rarityShared?.normalizeHexColor?.(tierConfig?.bodyColor, "#2b2b2b") ||
+        tierConfig?.bodyColor ||
+        "#2b2b2b")
+  );
+  const baseBorder = String(
+    themeTier?.border ||
+      (rarityShared?.normalizeHexColor?.(tierConfig?.borderColor, "#ffffff") ||
+        tierConfig?.borderColor ||
+        "#ffffff")
+  );
+  const baseText = String(
+    themeTier?.text ||
+      (rarityShared?.normalizeHexColor?.(tierConfig?.textColor, "#ffffff") ||
+        tierConfig?.textColor ||
+        "#ffffff")
+  );
+  const baseOpacity = themeTier
+    ? Math.max(0, Number(themeTier.opacity ?? 90))
+    : 90;
+  const baseBorderOpacity = themeTier
+    ? Math.max(0, Number(themeTier.borderOpacity ?? 100))
+    : 100;
+  const baseTextOpacity = themeTier
+    ? Math.max(0, Number(themeTier.textOpacity ?? 100))
+    : 100;
   return {
     id: String(tierConfig?.key || tierName),
     name: resolvedTierDisplayName,
-    body: String(themeTier?.body || (rarityShared?.normalizeHexColor?.(tierConfig?.bodyColor, "#2b2b2b") || tierConfig?.bodyColor || "#2b2b2b")),
-    border: String(themeTier?.border || (rarityShared?.normalizeHexColor?.(tierConfig?.borderColor, "#ffffff") || tierConfig?.borderColor || "#ffffff")),
-    text: String(themeTier?.text || (rarityShared?.normalizeHexColor?.(tierConfig?.textColor, "#ffffff") || tierConfig?.textColor || "#ffffff")),
+    body: adjustHexColorForDarknessDelta(baseBody, darknessDeltaPercent),
+    border: adjustHexColorForDarknessDelta(baseBorder, darknessDeltaPercent),
+    text: adjustHexColorForDarknessDelta(baseText, darknessDeltaPercent * 0.45),
     radius: themeTier ? Math.max(0, Number(themeTier.radius ?? 8)) : Math.round(getOverlayRadiusForSkin(raritySkin)),
     borderWidth: themeTier ? Math.max(0, Number(themeTier.borderWidth ?? 2)) : Math.max(0, Number(getCurrentSkinStyleConfig()?.borderWidth || 1)),
-    opacity: themeTier ? Math.max(0, Number(themeTier.opacity ?? 90)) : Math.round(100 - clamp(Number(overlayGlassiness || 20), 0, 100) * 0.8),
-    textOpacity: themeTier ? Math.max(0, Number(themeTier.textOpacity ?? 100)) : 100,
+    opacity: clamp(baseOpacity + opacityDeltaPercent, 0, 100),
+    borderOpacity: clamp(baseBorderOpacity + opacityDeltaPercent, 0, 100),
+    textOpacity: clamp(baseTextOpacity + opacityDeltaPercent * 0.8, 0, 100),
     effect: themeTier
       ? String(themeTier.effect || "none")
       : ((Array.isArray(tierConfig?.effects) && tierConfig.effects.includes("rainbow-cycle"))
@@ -4007,7 +4314,9 @@ function refreshActiveCardVisualsForCurrentSkin() {
       showLikesInNotifications ||
       showRarityLabelInNotifications;
     if (cardState.targetCorner) {
-      cardState.order = getTierOrderForCorner(cardState.targetCorner, tierRank, likesCount);
+      cardState.order = cardState.pinnedTowardCorner
+        ? getPinnedOrderTowardCorner(cardState.targetCorner, cardState.pinnedPrioritySeq)
+        : getTierOrderForCorner(cardState.targetCorner, tierRank, likesCount);
     }
   }
 }
@@ -4275,6 +4584,8 @@ function showOverlay(comment, accentDelayMs = 0) {
     comment,
     targetCorner,
     order: cardOrder,
+    pinnedTowardCorner: false,
+    pinnedPrioritySeq: 0,
     tierName,
     tierClass: `${tierName}-liked`,
     reactTier,
@@ -4431,8 +4742,6 @@ function resetVariables() {
   renderMarkersRafId = null;
   laneElements = new Map();
   activeTierThresholds = Object.create(null);
-  nonPopularityPrimaryThreshold = 0;
-  nonPopularityEliteThreshold = Number.POSITIVE_INFINITY;
   showAuthorInNotifications = DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS;
   showRarityLabelInNotifications = DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS;
   timelineMarkersEnabled = true;
@@ -4498,6 +4807,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       raritySkin = normalizeRaritySkin(
         String(message.activeThemeId || message.activeRaritySkinId || raritySkin)
       );
+      tabSessionRaritySkinOverride = raritySkin;
       recomputeLikeTierThresholds();
       refreshActiveCardVisualsForCurrentSkin();
       getReactOverlayRenderer()?.setThemeCatalog?.(themeCatalogV2);
@@ -4519,9 +4829,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const previousEarlyModeEnabled = earlyModeEnabled;
     const previousEarlySeconds = earlySeconds;
     const previousFollowPlaybackSpeed = followPlaybackSpeed;
+    const previousClickBackContextSeconds = clickBackContextSeconds;
     const previousRaritySkin = raritySkin;
     const previousRarityLogicMode = rarityLogicMode;
-    const previousPopularityModeEnabled = popularityModeEnabled;
     const previousHiddenRarityState = JSON.stringify(
       normalizeHiddenRarityTiersBySkin(hiddenRarityTiersBySkin)
     );
@@ -4562,6 +4872,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     debugMode = Boolean(message.debugMode ?? debugMode);
     earlyModeEnabled = Boolean(message.earlyModeEnabled ?? earlyModeEnabled);
     followPlaybackSpeed = Boolean(message.followPlaybackSpeed ?? followPlaybackSpeed);
+    clickBackContextSeconds = clamp(
+      Number(message.clickBackContextSeconds ?? clickBackContextSeconds),
+      MIN_CLICK_BACK_CONTEXT_SECONDS,
+      MAX_CLICK_BACK_CONTEXT_SECONDS
+    );
     earlySeconds = clamp(
       Number(message.earlySeconds ?? earlySeconds),
       MIN_EARLY_SECONDS,
@@ -4582,9 +4897,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       MIN_TOP_LIKED_THRESHOLD_PERCENT,
       MAX_TOP_LIKED_THRESHOLD_PERCENT
     );
-    popularityModeEnabled = Boolean(
-      message.popularityModeEnabled ?? popularityModeEnabled
-    );
     timelineMarkersEnabled = Boolean(
       message.timelineMarkersEnabled ?? timelineMarkersEnabled
     );
@@ -4593,20 +4905,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       Number(message.heatmapIntensity ?? heatmapIntensity),
       MIN_HEATMAP_INTENSITY,
       MAX_HEATMAP_INTENSITY
-    );
-    routingEnabled = Boolean(message.routingEnabled ?? routingEnabled);
-    routingThreshold = clamp(
-      Number(message.routingThreshold ?? routingThreshold),
-      MIN_ROUTING_THRESHOLD,
-      MAX_ROUTING_THRESHOLD
-    );
-    routingShortCorner = normalizeCorner(
-      String(message.routingShortCorner ?? routingShortCorner),
-      routingShortCorner
-    );
-    routingLongCorner = normalizeCorner(
-      String(message.routingLongCorner ?? routingLongCorner),
-      routingLongCorner
     );
     const messagePresetProfile = String(message.presetProfile ?? "");
     if (messagePresetProfile) {
@@ -4665,6 +4963,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     raritySkin = normalizeRaritySkin(
       String(message.activeRaritySkinId ?? message.raritySkin ?? raritySkin)
     );
+    if (
+      Object.prototype.hasOwnProperty.call(message, "raritySkin") ||
+      Object.prototype.hasOwnProperty.call(message, "activeRaritySkinId")
+    ) {
+      tabSessionRaritySkinOverride = raritySkin;
+    }
     overlayRadius = getOverlayRadiusForSkin(raritySkin);
     rarityLogicMode = normalizeRarityLogicMode(
       String(message.rarityLogicMode ?? rarityLogicMode)
@@ -4698,12 +5002,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       previousDisplayDuration !== displayDuration ||
       previousEarlyModeEnabled !== earlyModeEnabled ||
       previousEarlySeconds !== earlySeconds ||
-      previousFollowPlaybackSpeed !== followPlaybackSpeed;
+      previousFollowPlaybackSpeed !== followPlaybackSpeed ||
+      previousClickBackContextSeconds !== clickBackContextSeconds;
     const video = getVideo();
     const rarityBehaviorChanged =
       previousRaritySkin !== raritySkin ||
       previousRarityLogicMode !== rarityLogicMode ||
-      previousPopularityModeEnabled !== popularityModeEnabled ||
       previousHiddenRarityState !==
         JSON.stringify(normalizeHiddenRarityTiersBySkin(hiddenRarityTiersBySkin));
     if (!isOverlayRuntimeEnabled()) {
@@ -4732,6 +5036,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     raritySkin = nextSkin;
+    tabSessionRaritySkinOverride = nextSkin;
     overlayRadius = getOverlayRadiusForSkin(raritySkin);
     recomputeLikeTierThresholds();
     refreshActiveCardVisualsForCurrentSkin();
@@ -4751,6 +5056,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     debugLog("Comment filter changed, force refreshing comments");
     const videoId = getVideoId();
     if (videoId) {
+      pushQuickMenuScanDebugEvent("filter_settings_changed", "force refresh requested");
       try {
         const maybePromise = chrome.runtime.sendMessage({
           type: "comments",
@@ -4774,6 +5080,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "comments_replace") {
+    pushQuickMenuScanDebugEvent(
+      "comments_replace",
+      message.complete === false ? "partial (cached/startup/lazy continuing)" : "complete/cached"
+    );
     comments = message.comments || [];
     commentsLoadComplete = message.complete === undefined ? true : Boolean(message.complete);
     if (message.progress && typeof message.progress === "object") {

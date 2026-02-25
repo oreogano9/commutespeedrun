@@ -1,2 +1,91 @@
 html, body, #root { height: 100%; margin: 0; }
 body { background: #e2e8f0; }
+body.tc-theme-editor-body-dark { background: #020617; }
+
+.tc-theme-editor[data-color-mode="dark"] {
+  color: #e2e8f0;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .bg-slate-100 {
+  background: #0f172a !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .bg-white {
+  background: #111827 !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .bg-slate-50 {
+  background: #1f2937 !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .bg-indigo-50\/30 {
+  background: rgb(30 41 59 / 0.55) !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .border-slate-200,
+.tc-theme-editor[data-color-mode="dark"] .border-slate-200\/80 {
+  border-color: rgb(148 163 184 / 0.18) !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .border-slate-300 {
+  border-color: rgb(148 163 184 / 0.24) !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .border-indigo-100\/50 {
+  border-color: rgb(99 102 241 / 0.18) !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .text-slate-900 {
+  color: #e2e8f0 !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .text-slate-800 {
+  color: #e5e7eb !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .text-slate-700 {
+  color: #d1d5db !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .text-slate-400 {
+  color: #64748b !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .bg-gradient-to-b {
+  background-image: none !important;
+  background-color: #1f2937 !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .hover\:to-slate-50:hover,
+.tc-theme-editor[data-color-mode="dark"] .hover\:bg-slate-100:hover {
+  background-color: #273449 !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .ring-slate-200 {
+  --tw-ring-color: rgb(148 163 184 / 0.25) !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] input:not([type="color"]),
+.tc-theme-editor[data-color-mode="dark"] select,
+.tc-theme-editor[data-color-mode="dark"] textarea {
+  background: #0b1220 !important;
+  color: #e5e7eb !important;
+  border-color: rgb(148 163 184 / 0.18) !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] input[type="range"] {
+  background: rgb(148 163 184 / 0.2) !important;
+}
+
+.tc-theme-editor[data-color-mode="dark"] .shadow-sm,
+.tc-theme-editor[data-color-mode="dark"] .shadow-2xl {
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.35) !important;
+}

@@ -5,6 +5,7 @@
   const THEME_CATALOG_V2_REVISION_KEY = "themeCatalogV2Revision";
   const THEME_CATALOG_V2_SCHEMA_VERSION_KEY = "themeCatalogV2SchemaVersion";
   const THEME_CATALOG_V2_SCHEMA_VERSION = 1;
+  const RARITY_MODE_OFF_THEME_ID = "rarity-mode-off";
 
   const seedThemes = [
     {
@@ -549,7 +550,10 @@
     const pctFactor = Number((Math.max(0.15, 2.5 - rank * 0.32))).toFixed(2);
     return {
       key: slugifyLabel(themeTier.name, `tier-${rank + 1}`),
-      label: String(themeTier.name || `Tier ${rank + 1}`),
+      label:
+        themeTier?.name === undefined || themeTier?.name === null
+          ? `Tier ${rank + 1}`
+          : String(themeTier.name),
       bodyColor: normalizeHex(themeTier.body, "#FFFFFF"),
       textColor: normalizeHex(themeTier.text, "#111111"),
       borderColor: normalizeHex(themeTier.border, "#DDDDDD"),
@@ -595,7 +599,10 @@
   function normalizeThemeTier(tier, idx) {
     return {
       id: String(tier?.id || `tier-${idx + 1}`),
-      name: String(tier?.name || `Tier ${idx + 1}`),
+      name:
+        tier?.name === undefined || tier?.name === null
+          ? `Tier ${idx + 1}`
+          : String(tier.name),
       body: normalizeHex(tier?.body, "#FFFFFF"),
       border: normalizeHex(tier?.border, "#DDDDDD"),
       text: normalizeHex(tier?.text, "#111111"),
@@ -605,7 +612,7 @@
       textOpacity: Math.max(0, Math.min(100, Number(tier?.textOpacity ?? 100))),
       effect: [
         "none","galaxy","aurora","shader","neon-pulse","scanlines","frost","plasma","rainbow",
-        "prism-sheen","holo-grid","ember-glow","comet-trail","velvet-bloom","crystal-shift",
+        "prism-sheen","holo-grid","ember-glow","comet-trail","velvet-bloom","crystal-shift","landing-glow",
         "ac-leaf-drift","ac-petal-breeze","ac-bell-shimmer","ac-river-ripple","ac-sunbeam",
         "ac-cloud-soft","ac-woodgrain","ac-paper-fiber","ac-night-cricket","ac-museum-glow"
       ].includes(String(tier?.effect)) ? String(tier.effect) : "none"
@@ -625,9 +632,32 @@
 
   function normalizeThemeCatalog(catalog) {
     const inputThemes = Array.isArray(catalog?.themes) ? catalog.themes : seedThemes;
+    const withBuiltIns = inputThemes.slice();
+    if (!withBuiltIns.some((theme) => String(theme?.id || "") === RARITY_MODE_OFF_THEME_ID)) {
+      withBuiltIns.push({
+        id: RARITY_MODE_OFF_THEME_ID,
+        name: "Rarity mode off",
+        description: "Single neutral tier with no label.",
+        tiers: [
+          {
+            id: "off",
+            name: "",
+            body: "#1A1A1A",
+            border: "#4A4A4A",
+            borderOpacity: 100,
+            text: "#FFFFFF",
+            radius: 0,
+            borderWidth: 1,
+            opacity: 88,
+            textOpacity: 100,
+            effect: "none"
+          }
+        ]
+      });
+    }
     return {
       schemaVersion: THEME_CATALOG_V2_SCHEMA_VERSION,
-      themes: inputThemes.map(normalizeTheme)
+      themes: withBuiltIns.map(normalizeTheme)
     };
   }
 

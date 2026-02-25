@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 
 const CSS_EFFECTS = new Set([
   'neon-pulse','scanlines','frost','plasma','rainbow','prism-sheen','holo-grid','ember-glow','comet-trail',
-  'velvet-bloom','crystal-shift','ac-leaf-drift','ac-petal-breeze','ac-bell-shimmer','ac-river-ripple',
+  'velvet-bloom','crystal-shift','landing-glow','ac-leaf-drift','ac-petal-breeze','ac-bell-shimmer','ac-river-ripple',
   'ac-sunbeam','ac-cloud-soft','ac-woodgrain','ac-paper-fiber','ac-night-cricket','ac-museum-glow'
 ]);
 
