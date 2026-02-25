@@ -15,6 +15,7 @@ let laneElements = new Map();
 let activeTierThresholds = Object.create(null);
 let eyeToggleElement = null;
 let notificationsMutedByEye = false;
+let localOverlayForceEnabledWhileGlobalOff = false;
 let isVideoHovering = false;
 let reconcileRafId = null;
 let pendingReconcileTime = null;
@@ -34,6 +35,7 @@ let freePositionX = 0;
 let freePositionY = 0;
 let commentsRequestRetryTimerId = null;
 let autoSkinDetectTimerId = null;
+let commentsScanInProgress = false;
 let monitoredVideo = null;
 let videoMonitorHandlers = null;
 const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
@@ -48,7 +50,8 @@ const DEFAULT_DEBUG_MODE = false;
 const DEFAULT_EARLY_MODE_ENABLED = false;
 const DEFAULT_FOLLOW_PLAYBACK_SPEED = true;
 const DEFAULT_CLICK_BACK_CONTEXT_SECONDS =
-  settingsSchema?.defaults?.clickBackContextSeconds ?? 5;
+  settingsSchema?.defaults?.clickBackContextSeconds ?? 3;
+const DEFAULT_MARKER_PREVIEW_BOTTOM_OFFSET_PX = 78;
 const DEFAULT_EARLY_SECONDS = 5;
 const DEFAULT_TIMESTAMP_ACCENT_EFFECT = "rubberband";
 const DEFAULT_REVERSE_STACK_ORDER = false;
@@ -97,6 +100,7 @@ let debugMode = DEFAULT_DEBUG_MODE;
 let earlyModeEnabled = DEFAULT_EARLY_MODE_ENABLED;
 let followPlaybackSpeed = DEFAULT_FOLLOW_PLAYBACK_SPEED;
 let clickBackContextSeconds = DEFAULT_CLICK_BACK_CONTEXT_SECONDS;
+let markerPreviewBottomOffsetPx = DEFAULT_MARKER_PREVIEW_BOTTOM_OFFSET_PX;
 let earlySeconds = DEFAULT_EARLY_SECONDS;
 let timestampAccentEffect = DEFAULT_TIMESTAMP_ACCENT_EFFECT;
 let reverseStackOrder = DEFAULT_REVERSE_STACK_ORDER;
@@ -490,15 +494,21 @@ const QUICK_MENU_RARE_COMMENTS_PRESETS = Object.freeze([
 ]);
 
 function isTabOverlayEnabled() {
+  if (!isActive) {
+    return Boolean(localOverlayForceEnabledWhileGlobalOff);
+  }
   return !notificationsMutedByEye;
 }
 
 function isOverlayRuntimeEnabled() {
-  return Boolean(isActive && isTabOverlayEnabled());
+  return Boolean((isActive && !notificationsMutedByEye) || (!isActive && localOverlayForceEnabledWhileGlobalOff));
 }
 
 function pauseTimestampRuntime() {
-  clearStartupRequestTimers();
+  if (autoSkinDetectTimerId !== null) {
+    clearTimeout(autoSkinDetectTimerId);
+    autoSkinDetectTimerId = null;
+  }
   detachVideoMonitoring();
   hideOverlay();
   clearMarkers();
@@ -524,7 +534,7 @@ function resumeTimestampRuntime({ runScan = true } = {}) {
 
 function shouldRunFreshScanOnResume() {
   const hasLoadedComments = Array.isArray(comments) && comments.length > 0;
-  const scanInProgress = commentsLoadComplete === false;
+  const scanInProgress = commentsScanInProgress;
   return !(hasLoadedComments || scanInProgress);
 }
 
@@ -890,7 +900,9 @@ function positionQuickMenu(button, menu) {
 async function setGlobalOverlayActiveFromQuickMenu(nextValue) {
   const next = Boolean(nextValue);
   isActive = next;
-  notificationsMutedByEye = !next;
+  if (next) {
+    localOverlayForceEnabledWhileGlobalOff = false;
+  }
   try {
     const maybePromise = chrome.storage.sync.set({ active: next });
     if (maybePromise && typeof maybePromise.catch === "function") {
@@ -909,7 +921,12 @@ async function setGlobalOverlayActiveFromQuickMenu(nextValue) {
 }
 
 function setLocalNotificationsMutedFromQuickMenu(nextValue) {
-  notificationsMutedByEye = Boolean(nextValue);
+  if (!isActive) {
+    localOverlayForceEnabledWhileGlobalOff = !Boolean(nextValue);
+  } else {
+    notificationsMutedByEye = Boolean(nextValue);
+    localOverlayForceEnabledWhileGlobalOff = false;
+  }
   if (!isOverlayRuntimeEnabled()) {
     pauseTimestampRuntime();
   } else {
@@ -1279,7 +1296,7 @@ function ensureQuickMenuContent() {
       return;
     }
     if (action === "toggle-local") {
-      setLocalNotificationsMutedFromQuickMenu(notificationsMutedByEye ? false : true);
+      setLocalNotificationsMutedFromQuickMenu(isTabOverlayEnabled());
       return;
     }
     if (action === "toggle-minimal") {
@@ -1384,7 +1401,7 @@ function updateEyeIconElement(force = false) {
     }
     const { button, menu } = parts;
     button.classList.toggle("active", quickMenuOpen);
-    button.classList.toggle("is-muted", notificationsMutedByEye || !isActive);
+    button.classList.toggle("is-muted", !isOverlayRuntimeEnabled());
     button.classList.toggle("is-loading", !commentsLoadComplete);
     menu.classList.toggle("open", quickMenuOpen);
     menu.setAttribute("aria-hidden", quickMenuOpen ? "false" : "true");
@@ -3603,9 +3620,10 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0, source = "un
   if (!videoId) {
     return;
   }
-  if (!isOverlayRuntimeEnabled()) {
+  if (!isOverlayRuntimeEnabled() && !commentsScanInProgress) {
     return;
   }
+  commentsScanInProgress = true;
   if (commentsRequestRetryTimerId !== null) {
     clearTimeout(commentsRequestRetryTimerId);
   }
@@ -3620,7 +3638,7 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0, source = "un
     if (currentVideoId !== videoId || getVideoId() !== videoId) {
       return;
     }
-    if (!isOverlayRuntimeEnabled()) {
+    if (!isOverlayRuntimeEnabled() && !commentsScanInProgress) {
       return;
     }
     try {
@@ -3645,6 +3663,8 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0, source = "un
           COMMENTS_REQUEST_RETRY_DELAYS_MS[attempt],
           source
         );
+      } else {
+        commentsScanInProgress = false;
       }
     }
   }, Math.max(0, Number(delayMs) || 0));
@@ -3827,6 +3847,7 @@ function showMarkerPreview(markerRect, markerData) {
   const centerX = markerRect.left + markerRect.width / 2;
   const previewWidth = Math.min(420, hostRect.width - 16);
   preview.style.width = `${previewWidth}px`;
+  preview.style.bottom = `${Math.round(markerPreviewBottomOffsetPx)}px`;
 
   const desiredLeft = centerX - hostRect.left - previewWidth / 2;
   const clampedLeft = Math.max(8, Math.min(hostRect.width - previewWidth - 8, desiredLeft));
@@ -4687,6 +4708,7 @@ function resetVariables() {
   monitoringInitialized = false;
   currentVideoId = null;
   comments = [];
+  commentsScanInProgress = false;
   commentsLoadComplete = false;
   commentsLoadPagesFetched = null;
   commentsLoadPagesTarget = null;
@@ -4788,7 +4810,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "isActive") {
     isActive = message.status;
-    notificationsMutedByEye = !isActive;
+    if (isActive) {
+      localOverlayForceEnabledWhileGlobalOff = false;
+    }
     if (!isOverlayRuntimeEnabled()) {
       pauseTimestampRuntime();
     } else {
@@ -5086,6 +5110,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
     comments = message.comments || [];
     commentsLoadComplete = message.complete === undefined ? true : Boolean(message.complete);
+    commentsScanInProgress = !commentsLoadComplete;
     if (message.progress && typeof message.progress === "object") {
       commentsLoadPagesFetched = Number.isFinite(Number(message.progress.pagesFetched))
         ? Number(message.progress.pagesFetched)
@@ -5118,6 +5143,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     comments.push(...(message.comments || []));
     if (message.complete !== undefined) {
       commentsLoadComplete = Boolean(message.complete);
+      if (commentsLoadComplete) {
+        commentsScanInProgress = false;
+      }
     }
     if (message.progress && typeof message.progress === "object") {
       if (Number.isFinite(Number(message.progress.pagesFetched))) {

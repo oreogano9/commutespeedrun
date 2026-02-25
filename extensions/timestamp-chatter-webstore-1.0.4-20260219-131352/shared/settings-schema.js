@@ -14,7 +14,7 @@
     maxMessageChars: 200,
     earlyModeEnabled: false,
     followPlaybackSpeed: true,
-    clickBackContextSeconds: 5,
+    clickBackContextSeconds: 3,
     earlySeconds: 5,
     timestampAccentEffect: "rubberband",
     reverseStackOrder: false,

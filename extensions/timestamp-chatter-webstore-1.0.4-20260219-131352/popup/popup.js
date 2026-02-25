@@ -14,7 +14,7 @@ const DEFAULT_MAX_MESSAGE_CHARS = settingsSchema?.defaults?.maxMessageChars ?? 2
 const DEFAULT_EARLY_MODE_ENABLED = false;
 const DEFAULT_FOLLOW_PLAYBACK_SPEED = true;
 const DEFAULT_CLICK_BACK_CONTEXT_SECONDS =
-  settingsSchema?.defaults?.clickBackContextSeconds ?? 5;
+  settingsSchema?.defaults?.clickBackContextSeconds ?? 3;
 const DEFAULT_EARLY_SECONDS = 5;
 const DEFAULT_TIMESTAMP_ACCENT_EFFECT = "rubberband";
 const DEFAULT_REVERSE_STACK_ORDER = false;
@@ -1198,6 +1198,7 @@ async function broadcastOverlaySettings({
   maxMessageChars,
   earlyModeEnabled,
   followPlaybackSpeed,
+  clickBackContextSeconds,
   earlySeconds,
   timestampAccentEffect,
   reverseStackOrder,
@@ -1246,6 +1247,7 @@ async function broadcastOverlaySettings({
     maxMessageChars,
     earlyModeEnabled,
     followPlaybackSpeed,
+    clickBackContextSeconds,
     earlySeconds,
     timestampAccentEffect,
     reverseStackOrder,
@@ -2735,9 +2737,41 @@ document.addEventListener("DOMContentLoaded", async () => {
   commentFetchAdaptiveToggle.addEventListener("change", saveOverlaySettings);
   livePageMarkersToggle.addEventListener("change", saveOverlaySettings);
   clearCacheOnRefreshToggle.addEventListener("change", saveOverlaySettings);
-  const bindRealtime = (element, handler) => {
-    element.addEventListener("input", handler);
-    element.addEventListener("change", handler);
+  const bindRealtime = (element, handler, options = {}) => {
+    if (!element || typeof handler !== "function") {
+      return;
+    }
+    const inputDebounceMs = Math.max(0, Number(options.inputDebounceMs ?? 180));
+    let inputTimerId = null;
+
+    const runHandler = () => {
+      if (inputTimerId) {
+        clearTimeout(inputTimerId);
+        inputTimerId = null;
+      }
+      try {
+        const maybePromise = handler();
+        if (maybePromise && typeof maybePromise.catch === "function") {
+          maybePromise.catch((error) => {
+            console.warn("Realtime settings save failed", error);
+          });
+        }
+      } catch (error) {
+        console.warn("Realtime settings handler failed", error);
+      }
+    };
+
+    element.addEventListener("input", () => {
+      if (inputDebounceMs === 0) {
+        runHandler();
+        return;
+      }
+      if (inputTimerId) {
+        clearTimeout(inputTimerId);
+      }
+      inputTimerId = window.setTimeout(runHandler, inputDebounceMs);
+    });
+    element.addEventListener("change", runHandler);
   };
 
   async function updateSelectedTier(mutator) {

@@ -1540,8 +1540,7 @@
 }
 
 .__tc-ts-marker:hover {
-  background: #3ea6ff;
-  transform: translateX(-50%) scaleY(1.08);
+  transform: translateX(-50%);
 }
 
 .__tc-ts-marker.gold-tier:hover,
@@ -2176,7 +2175,7 @@
 
 .__tc-ts-marker-preview {
   position: absolute;
-  bottom: 54px;
+  bottom: 68px;
   background: rgb(20 20 20 / 0.92);
   color: #fff;
   border: 1px solid rgb(255 255 255 / 0.25);

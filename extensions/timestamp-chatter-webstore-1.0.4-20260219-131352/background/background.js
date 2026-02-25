@@ -46,8 +46,6 @@ const COMMENT_FETCH_HARD_MAX_PAGES = 300;
 const COMMENT_FETCH_PAGE_TIMEOUT_MS = 12000;
 const COMMENT_FETCH_LAZY_DELAY_MS = 7000;
 const CACHE_KEEPALIVE_REFRESH_INTERVAL_MS = 60 * 1000;
-const PERSISTED_CONTINUATION_CACHE_KEY = "commentsContinuationCacheV1";
-const MAX_PERSISTED_CONTINUATION_CACHE_ENTRIES = 24;
 
 const commentsCache = new Map();
 const lazyFetchPromises = new Map();
@@ -344,96 +342,6 @@ function updateCacheEntry(videoId, comments, nextToken = null, completeOverride 
     nextToken: nextToken || null,
     complete: completeOverride === null ? !nextToken : Boolean(completeOverride)
   });
-  persistContinuationCacheSnapshotForVideo(videoId);
-}
-
-function sanitizePersistedContinuationCacheEntry(entry) {
-  if (!entry || typeof entry !== "object") {
-    return null;
-  }
-  const fetchedAt = Number(entry.fetchedAt || 0);
-  const pagesFetched = Number(entry.pagesFetched || 0);
-  return {
-    fetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : 0,
-    pagesFetched: Number.isFinite(pagesFetched) ? pagesFetched : 0,
-    complete: Boolean(entry.complete),
-    nextToken: entry.nextToken ? String(entry.nextToken) : null,
-    comments: Array.isArray(entry.comments) ? entry.comments : []
-  };
-}
-
-function trimPersistedContinuationCacheMap(cacheMap) {
-  const now = Date.now();
-  const entries = Object.entries(cacheMap || {})
-    .map(([videoId, entry]) => [videoId, sanitizePersistedContinuationCacheEntry(entry)])
-    .filter(([, entry]) => Boolean(entry))
-    .filter(([, entry]) => {
-      // Keep a small stale grace period so reloads shortly after TTL can still retry fresh logic gracefully.
-      return now - Number(entry.fetchedAt || 0) < COMMENTS_CACHE_TTL_MS * 3;
-    })
-    .sort((a, b) => Number(b[1].fetchedAt || 0) - Number(a[1].fetchedAt || 0))
-    .slice(0, MAX_PERSISTED_CONTINUATION_CACHE_ENTRIES);
-  return Object.fromEntries(entries);
-}
-
-async function readPersistedContinuationCacheMap() {
-  try {
-    const stored = await chrome.storage.local.get([PERSISTED_CONTINUATION_CACHE_KEY]);
-    const raw = stored?.[PERSISTED_CONTINUATION_CACHE_KEY];
-    return raw && typeof raw === "object" ? raw : {};
-  } catch (error) {
-    return {};
-  }
-}
-
-async function writePersistedContinuationCacheMap(cacheMap) {
-  try {
-    await chrome.storage.local.set({
-      [PERSISTED_CONTINUATION_CACHE_KEY]: trimPersistedContinuationCacheMap(cacheMap)
-    });
-  } catch (error) {
-    // Ignore local cache persistence failures.
-  }
-}
-
-async function persistContinuationCacheSnapshotForVideo(videoId) {
-  if (!videoId) return;
-  const memoryEntry = commentsCache.get(videoId);
-  if (!memoryEntry) return;
-  const snapshot = sanitizePersistedContinuationCacheEntry(memoryEntry);
-  if (!snapshot) return;
-  const cacheMap = await readPersistedContinuationCacheMap();
-  cacheMap[videoId] = snapshot;
-  await writePersistedContinuationCacheMap(cacheMap);
-}
-
-async function removePersistedContinuationCacheForVideo(videoId) {
-  if (!videoId) return;
-  const cacheMap = await readPersistedContinuationCacheMap();
-  if (!Object.prototype.hasOwnProperty.call(cacheMap, videoId)) {
-    return;
-  }
-  delete cacheMap[videoId];
-  await writePersistedContinuationCacheMap(cacheMap);
-}
-
-async function hydrateContinuationCacheSnapshotForVideo(videoId) {
-  if (!videoId || commentsCache.has(videoId)) {
-    return commentsCache.get(videoId) || null;
-  }
-  const cacheMap = await readPersistedContinuationCacheMap();
-  const persistedEntry = sanitizePersistedContinuationCacheEntry(cacheMap?.[videoId]);
-  if (!persistedEntry) {
-    return null;
-  }
-  commentsCache.set(videoId, {
-    fetchedAt: Number(persistedEntry.fetchedAt || 0),
-    comments: Array.isArray(persistedEntry.comments) ? persistedEntry.comments : [],
-    nextToken: persistedEntry.nextToken || null,
-    complete: Boolean(persistedEntry.complete),
-    pagesFetched: Number(persistedEntry.pagesFetched || 0) || 0
-  });
-  return commentsCache.get(videoId) || null;
 }
 
 function getCommentFetchConfig() {
@@ -566,7 +474,6 @@ async function fetchAllComments(videoId) {
   const entry = commentsCache.get(videoId);
   if (entry) {
     entry.pagesFetched = Number(result.pagesFetched || 0) || 0;
-    persistContinuationCacheSnapshotForVideo(videoId);
   }
   return result.comments;
 }
@@ -727,7 +634,6 @@ function scheduleLazyCommentsFetch(videoId) {
     const updatedEntry = commentsCache.get(videoId);
     if (updatedEntry) {
       updatedEntry.pagesFetched = actualTotalPagesFetched;
-      persistContinuationCacheSnapshotForVideo(videoId);
     }
 
     const {
@@ -801,9 +707,26 @@ async function getFilterSettings() {
 async function sendMessage(tabId, payload) {
   try {
     await chrome.tabs.sendMessage(tabId, payload);
+    return true;
   } catch (error) {
     // Ignore tabs that no longer have the content script attached.
+    return false;
   }
+}
+
+async function sendMessageWithRetry(tabId, payload, retryDelaysMs = [120, 300, 700, 1200]) {
+  const firstTry = await sendMessage(tabId, payload);
+  if (firstTry) {
+    return true;
+  }
+  for (const delayMs of retryDelaysMs) {
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(delayMs || 0))));
+    const ok = await sendMessage(tabId, payload);
+    if (ok) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function isTabStillOnVideo(tabId, videoId) {
@@ -1026,10 +949,7 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
 
   if (forceRefresh) {
     commentsCache.delete(videoId);
-    removePersistedContinuationCacheForVideo(videoId);
   }
-
-  await hydrateContinuationCacheSnapshotForVideo(videoId);
   const cacheEntry = commentsCache.get(videoId);
   if (!forceRefresh && isCacheFresh(cacheEntry)) {
     const reducedFromCache = commentsForSettings(
@@ -1040,7 +960,7 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
       hideMultiTimestampMessages
     );
     if (await isTabStillOnVideo(tabId, videoId)) {
-      await sendMessage(tabId, {
+      await sendMessageWithRetry(tabId, {
         type: "comments_replace",
         comments: reducedFromCache,
         complete: Boolean(cacheEntry?.complete),
@@ -1092,7 +1012,6 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
     const initialEntry = commentsCache.get(videoId);
     if (initialEntry) {
       initialEntry.pagesFetched = Number(initialResult.pagesFetched || 0);
-      persistContinuationCacheSnapshotForVideo(videoId);
     }
 
     const reduced = commentsForSettings(
@@ -1103,7 +1022,7 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
         hideMultiTimestampMessages
       );
     if (await isTabStillOnVideo(tabId, videoId)) {
-      await sendMessage(tabId, {
+      await sendMessageWithRetry(tabId, {
         type: "comments_replace",
         comments: reduced,
         complete: !initialResult.nextToken,
@@ -1153,7 +1072,6 @@ async function refreshOpenVideoCacheKeepalive() {
         continue;
       }
       cacheEntry.fetchedAt = now;
-      persistContinuationCacheSnapshotForVideo(videoId);
     }
   } catch (error) {
     // Ignore periodic keepalive failures.
