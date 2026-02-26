@@ -30,7 +30,7 @@
     showUpcomingDot: true,
     stackOpacityFadeEnabled: true,
     stackOpacityFadeStart: 6,
-    stackOpacityFadeStepPercent: 20,
+    stackOpacityFadeStepPercent: 9,
     showRarityLabelInNotifications: true,
     hideTimestampOnlyMessages: true,
     hideMultiTimestampMessages: true,

@@ -1,9 +1,15 @@
 html, body, #root { height: 100%; margin: 0; }
 body { background: #e2e8f0; }
 body.tc-theme-editor-body-dark { background: #020617; }
+html.tc-theme-editor-html-dark,
+body.tc-theme-editor-body-dark,
+body.tc-theme-editor-body-dark #root {
+  background: #020617 !important;
+}
 
 .tc-theme-editor[data-color-mode="dark"] {
   color: #e2e8f0;
+  background: #0f172a !important;
 }
 
 .tc-theme-editor[data-color-mode="dark"] .bg-slate-100 {

@@ -897,6 +897,17 @@ function positionQuickMenu(button, menu) {
   menu.style.right = "auto";
 }
 
+function repositionQuickMenuIfOpen() {
+  if (!quickMenuOpen || !eyeToggleElement || !quickMenuMenuElement) {
+    return;
+  }
+  const button = eyeToggleElement.querySelector(".tc-yt-settings-btn");
+  if (!button || !quickMenuMenuElement.isConnected) {
+    return;
+  }
+  positionQuickMenu(button, quickMenuMenuElement);
+}
+
 async function setGlobalOverlayActiveFromQuickMenu(nextValue) {
   const next = Boolean(nextValue);
   isActive = next;
@@ -1189,6 +1200,20 @@ function attachQuickMenuGlobalHandlersOnce() {
       setQuickMenuOpen(false);
     }
   });
+  window.addEventListener(
+    "scroll",
+    () => {
+      repositionQuickMenuIfOpen();
+    },
+    { capture: true, passive: true }
+  );
+  window.addEventListener(
+    "resize",
+    () => {
+      repositionQuickMenuIfOpen();
+    },
+    { passive: true }
+  );
 }
 
 function ensureQuickMenuContent() {
@@ -3636,6 +3661,7 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0, source = "un
   commentsRequestRetryTimerId = setTimeout(async () => {
     commentsRequestRetryTimerId = null;
     if (currentVideoId !== videoId || getVideoId() !== videoId) {
+      commentsScanInProgress = false;
       return;
     }
     if (!isOverlayRuntimeEnabled() && !commentsScanInProgress) {
@@ -3891,6 +3917,11 @@ function renderHeatmapWave(bar, videoDuration) {
 
   const bins = 420;
   const counts = new Array(bins).fill(0);
+  const colorR = new Array(bins).fill(0);
+  const colorG = new Array(bins).fill(0);
+  const colorB = new Array(bins).fill(0);
+  const colorWeight = new Array(bins).fill(0);
+  const tierCount = Math.max(1, getTierKeys().length);
   for (const comment of comments) {
     if (isCommentTierHidden(comment)) {
       continue;
@@ -3900,7 +3931,24 @@ function renderHeatmapWave(bar, videoDuration) {
     }
     const ratio = comment.time / videoDuration;
     const idx = Math.min(bins - 1, Math.max(0, Math.floor(ratio * bins)));
-    counts[idx] += getHeatmapCommentWeight(comment);
+    const likesCount = Number(comment?.likes || 0);
+    const tierRank = getTierRank(likesCount, comment);
+    const tierName = getTierName(tierRank);
+    const tierConfig = getTierConfigByKey(tierName);
+    const baseWeight = getHeatmapCommentWeight(comment);
+    counts[idx] += baseWeight;
+
+    const tintColor = parseHexColorToRgb(getLuminousTierMarkerDotColor(tierConfig));
+    if (tintColor) {
+      const rankProgress = tierCount <= 1 ? 0 : clamp(tierRank / (tierCount - 1), 0, 1);
+      // Favor higher tiers strongly so they dominate overlapping areas of the heatmap.
+      const priorityBoost = 1 + Math.pow(rankProgress, 1.8) * 8.5;
+      const tintWeight = baseWeight * priorityBoost;
+      colorR[idx] += tintColor.r * tintWeight;
+      colorG[idx] += tintColor.g * tintWeight;
+      colorB[idx] += tintColor.b * tintWeight;
+      colorWeight[idx] += tintWeight;
+    }
   }
   const weights = [1, 2, 3, 4, 5, 6, 7, 8, 9, 8, 7, 6, 5, 4, 3, 2, 1];
   const radius = Math.floor(weights.length / 2);
@@ -3924,6 +3972,11 @@ function renderHeatmapWave(bar, videoDuration) {
   const smoothedTwice = applyKernelSmoothing(smoothed);
   const smoothedThrice = applyKernelSmoothing(smoothedTwice);
   const smoothedValues = smoothedThrice;
+  const smoothColorChannelThrice = (source) => applyKernelSmoothing(applyKernelSmoothing(applyKernelSmoothing(source)));
+  const smoothedColorR = smoothColorChannelThrice(colorR);
+  const smoothedColorG = smoothColorChannelThrice(colorG);
+  const smoothedColorB = smoothColorChannelThrice(colorB);
+  const smoothedColorWeight = smoothColorChannelThrice(colorWeight);
 
   const maxCount = Math.max(...smoothedValues);
   if (!maxCount) {
@@ -3942,15 +3995,31 @@ function renderHeatmapWave(bar, videoDuration) {
     const eased = Math.pow(ratio, 0.72);
     const height = minHeightPx + eased * maxHeightPx * intensityScale;
     const alpha = clamp(
-      0.18 + eased * (0.28 + 0.55 * Math.min(1, intensityScale / 3)),
-      0.08,
-      0.98
+      0.28 + eased * (0.34 + 0.62 * Math.min(1, intensityScale / 3)),
+      0.16,
+      0.99
     );
 
     const bin = document.createElement("span");
     bin.className = "__tc-ts-heatmap-bin";
     bin.style.height = `${height.toFixed(2)}px`;
     bin.style.opacity = alpha.toFixed(3);
+    const tintWeight = Number(smoothedColorWeight[i] || 0);
+    if (tintWeight > 0.001) {
+      const baseR = clamp(smoothedColorR[i] / tintWeight, 0, 255);
+      const baseG = clamp(smoothedColorG[i] / tintWeight, 0, 255);
+      const baseB = clamp(smoothedColorB[i] / tintWeight, 0, 255);
+      const whiten = (channel, amount) => clamp(channel + (255 - channel) * amount, 0, 255);
+      const topMix = [whiten(baseR, 0.48), whiten(baseG, 0.48), whiten(baseB, 0.48)];
+      const midMix = [whiten(baseR, 0.24), whiten(baseG, 0.24), whiten(baseB, 0.24)];
+      const botMix = [baseR, baseG, baseB];
+      const asCssRgb = (triplet, alphaValue) =>
+        `rgb(${Math.round(triplet[0])} ${Math.round(triplet[1])} ${Math.round(triplet[2])} / ${alphaValue})`;
+      bin.style.background = `linear-gradient(180deg, ${asCssRgb(topMix, 0.98)} 0%, ${asCssRgb(
+        midMix,
+        0.9
+      )} 52%, ${asCssRgb(botMix, 0.78)} 100%)`;
+    }
     fragment.appendChild(bin);
   }
   wave.appendChild(fragment);
@@ -4734,6 +4803,8 @@ function resetVariables() {
   quickMenuOpen = false;
   quickMenuActivePanel = "main";
   quickMenuStatusText = "";
+  notificationsMutedByEye = false;
+  localOverlayForceEnabledWhileGlobalOff = false;
   eyeVisualState = EYE_STATE_LOADING;
   if (quickMenuMenuElement && quickMenuMenuElement.parentElement) {
     quickMenuMenuElement.remove();
@@ -4777,9 +4848,13 @@ function resetVariables() {
   hideOverlay();
 }
 
-window.addEventListener("load", async () => {
-  await safeMain();
-});
+if (document.readyState === "complete") {
+  safeMain();
+} else {
+  window.addEventListener("load", async () => {
+    await safeMain();
+  });
+}
 
 document.addEventListener("fullscreenchange", () => {
   applyOverlayStyles();

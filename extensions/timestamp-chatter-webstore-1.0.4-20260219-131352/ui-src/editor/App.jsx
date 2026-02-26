@@ -255,10 +255,12 @@ export default function App() {
     } catch {}
     try {
       document.body.classList.toggle('tc-theme-editor-body-dark', editorColorMode === 'dark');
+      document.documentElement.classList.toggle('tc-theme-editor-html-dark', editorColorMode === 'dark');
     } catch {}
     return () => {
       try {
         document.body.classList.remove('tc-theme-editor-body-dark');
+        document.documentElement.classList.remove('tc-theme-editor-html-dark');
       } catch {}
     };
   }, [editorColorMode]);
