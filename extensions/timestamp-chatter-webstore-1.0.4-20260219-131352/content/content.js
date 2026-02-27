@@ -1087,6 +1087,11 @@ function ensureCommentDraftPopup() {
   popup.setAttribute("aria-hidden", "true");
   popup.innerHTML = `
     <div class="__tc-comment-draft-bar">
+      <button type="button" class="__tc-comment-draft-sync js-comment-draft-sync" aria-label="Sync timestamp to current video time" title="Sync timestamp to current time">
+        <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 5a7 7 0 0 1 6.2 3.8V7h1.8v5h-5v-1.8h2.2A5.2 5.2 0 1 0 17 15h1.9A7 7 0 1 1 12 5z"/>
+        </svg>
+      </button>
       <div class="__tc-comment-draft-stack" aria-label="Timestamp adjuster">
         <button type="button" class="__tc-comment-draft-small-btn __tc-comment-draft-step js-comment-draft-step" data-step="1" aria-label="Move timestamp forward 1 second" title="Timestamp +1s">+</button>
         <button type="button" class="__tc-comment-draft-small-btn __tc-comment-draft-step js-comment-draft-step" data-step="-1" aria-label="Move timestamp back 1 second" title="Timestamp -1s">-</button>
@@ -1108,9 +1113,17 @@ function ensureCommentDraftPopup() {
   });
   const stopPopupKeyEvent = (event) => {
     event.stopPropagation();
-    if (event.type === "keydown" && event.key === "Escape") {
-      event.preventDefault();
-      setCommentDraftPopupOpen(false, { resetDraft: true });
+    if (event.type === "keydown") {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setCommentDraftPopupOpen(false, { resetDraft: true });
+        return;
+      }
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        void insertCommentDraftIntoYouTubeComposer();
+        return;
+      }
     }
   };
   popup.addEventListener("keydown", stopPopupKeyEvent);
@@ -1128,6 +1141,12 @@ function ensureCommentDraftPopup() {
       nudgeCommentDraftTimestamp(delta);
     });
   });
+  const syncBtn = popup.querySelector(".js-comment-draft-sync");
+  if (syncBtn) {
+    syncBtn.addEventListener("click", () => {
+      syncCommentDraftTimestampToCurrentVideo();
+    });
+  }
   const postBtn = popup.querySelector(".js-comment-draft-post");
   if (postBtn) {
     postBtn.addEventListener("click", async () => {
@@ -1226,6 +1245,27 @@ function nudgeCommentDraftTimestamp(deltaSeconds) {
   setCommentDraftStatus("", "");
 }
 
+function syncCommentDraftTimestampToCurrentVideo() {
+  const video = getVideo();
+  if (!video) {
+    setCommentDraftStatus("No video found on this page.", "error");
+    return;
+  }
+  const duration = Number(video.duration);
+  const maxTime = Number.isFinite(duration) && duration > 0 ? duration : Number.POSITIVE_INFINITY;
+  const currentTime = clamp(Number(video.currentTime || 0), 0, maxTime);
+  commentDraftTimestampSeconds = currentTime;
+  if (commentDraftTextareaElement) {
+    commentDraftTextareaElement.value = replaceDraftTimestampPrefix(
+      commentDraftTextareaElement.value,
+      currentTime
+    );
+    autosizeCommentDraftTextarea();
+    commentDraftTextareaElement.focus({ preventScroll: true });
+  }
+  setCommentDraftStatus("", "");
+}
+
 async function waitForElement(getter, timeoutMs = 1800, stepMs = 60) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -1242,6 +1282,14 @@ function getYouTubeCommentSimplebox() {
   return (
     document.querySelector("ytd-comments ytd-comment-simplebox-renderer") ||
     document.querySelector("ytd-comment-simplebox-renderer")
+  );
+}
+
+function getYouTubeCommentsSectionRoot() {
+  return (
+    document.querySelector("ytd-comments#comments") ||
+    document.querySelector("ytd-comments") ||
+    document.querySelector("#comments")
   );
 }
 
@@ -1264,6 +1312,45 @@ function getYouTubeCommentComposerActivator(simplebox) {
     simplebox.querySelector("#placeholder") ||
     simplebox.querySelector('[role="button"]')
   );
+}
+
+async function ensureYouTubeCommentSimpleboxReady() {
+  let simplebox = getYouTubeCommentSimplebox();
+  if (simplebox) {
+    return simplebox;
+  }
+
+  const commentsRoot = getYouTubeCommentsSectionRoot();
+  if (commentsRoot) {
+    try {
+      commentsRoot.scrollIntoView({ block: "center", behavior: "smooth" });
+    } catch (_error) {}
+  } else {
+    const belowRoot = document.querySelector("#below") || document.querySelector("#primary");
+    if (belowRoot) {
+      try {
+        belowRoot.scrollIntoView({ block: "start", behavior: "smooth" });
+      } catch (_error) {}
+    } else {
+      try {
+        window.scrollBy({ top: Math.max(320, window.innerHeight * 0.4), behavior: "smooth" });
+      } catch (_error) {}
+    }
+  }
+
+  simplebox = await waitForElement(() => getYouTubeCommentSimplebox(), 5200, 90);
+  if (simplebox) {
+    return simplebox;
+  }
+
+  // One more quick pass without smooth scrolling in case lazy render is still catching up.
+  const commentsRootRetry = getYouTubeCommentsSectionRoot();
+  if (commentsRootRetry) {
+    try {
+      commentsRootRetry.scrollIntoView({ block: "center", behavior: "auto" });
+    } catch (_error) {}
+  }
+  return await waitForElement(() => getYouTubeCommentSimplebox(), 2200, 90);
 }
 
 function dispatchInputEventsForContentEditable(editor) {
@@ -1328,15 +1415,16 @@ async function insertCommentDraftIntoYouTubeComposer() {
     return false;
   }
 
-  let simplebox = getYouTubeCommentSimplebox();
+  let simplebox = await ensureYouTubeCommentSimpleboxReady();
   if (!simplebox) {
-    setCommentDraftStatus("Comments unavailable on this video.", "error");
+    setCommentDraftStatus("Comment box is still loading. Scroll down and try again.", "error");
     const copied = await tryClipboardFallbackForCommentDraft(draftText);
     if (copied) {
-      setCommentDraftPopupOpen(false, { resetDraft: true });
-      return true;
+      setCommentDraftStatus(
+        "Comment box still loading. Draft copied to clipboard; text kept here.",
+        "error"
+      );
     }
-    setCommentDraftStatus("Comments unavailable on this video.", "error");
     return false;
   }
 
@@ -1358,8 +1446,11 @@ async function insertCommentDraftIntoYouTubeComposer() {
   if (!editor) {
     const copied = await tryClipboardFallbackForCommentDraft(draftText);
     if (copied) {
-      setCommentDraftPopupOpen(false, { resetDraft: true });
-      return true;
+      setCommentDraftStatus(
+        "Comment box not ready yet. Draft copied to clipboard; text kept here.",
+        "error"
+      );
+      return false;
     }
     setCommentDraftStatus("Couldn't find YouTube comment box.", "error");
     return false;
@@ -1369,8 +1460,11 @@ async function insertCommentDraftIntoYouTubeComposer() {
   if (!inserted) {
     const copied = await tryClipboardFallbackForCommentDraft(draftText);
     if (copied) {
-      setCommentDraftPopupOpen(false, { resetDraft: true });
-      return true;
+      setCommentDraftStatus(
+        "Couldn't insert automatically. Draft copied to clipboard; text kept here.",
+        "error"
+      );
+      return false;
     }
     setCommentDraftStatus("Couldn't insert into YouTube comment box.", "error");
     return false;

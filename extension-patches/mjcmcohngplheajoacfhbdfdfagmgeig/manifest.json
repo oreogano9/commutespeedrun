@@ -1,0 +1,58 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+  "name": "Cinematic for YouTube™",
+  "version": "1.1.1",
+  "description": "Transform your YouTube into a Netflix-style experience with cinematic video previews and an immersive browsing experience.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA164K884N87bYcFdwHRIdGqY1iRVkzBUnmaE7IAMoxr6TfWP0rNLUIwWezN6Kr5RvG7S+4kxnywbMmXsrz1TSHASuwTaezkva6A9jLo2v2KYb0XUwCM4ya/TWpmjeFaRnJU2pwBJfVut1EeFt319pwvHoGoX6oMA9QfOkCh9/t6Ah5zjBSITSC1scoC+XTjUs1Z7eVseC+mm/zO/sh45ugB2krkrJ/GB9oGOAMdwbENKbyAMS5GXbd2Mjxd/NfeQMUlTmSMUfic4RmWNAfTbEc8KiWyV+UNWyPASnU1xI2p5CTaSP/9Z5AvaMX2GiyLWmj4CYUI7z6jonuL6AD0nkwwIDAQAB",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "manifest_version": 3,
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://*.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://*.youtube.com/*"
+      ],
+      "css": [
+        "styles/netflix-theme.css"
+      ],
+      "js": [
+        "scripts/content.bundle.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "styles/*"
+      ],
+      "matches": [
+        "https://*.youtube.com/*"
+      ]
+    }
+  ]
+}

@@ -1615,6 +1615,26 @@
   overflow: hidden;
 }
 
+.__tc-comment-draft-sync {
+  background: transparent;
+  border: none;
+  color: #7f8ba3;
+  cursor: pointer;
+  min-width: 34px;
+  width: 34px;
+  padding: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+}
+
+.__tc-comment-draft-sync:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .__tc-comment-draft-stack {
   display: grid;
   grid-template-rows: 1fr 1fr;
