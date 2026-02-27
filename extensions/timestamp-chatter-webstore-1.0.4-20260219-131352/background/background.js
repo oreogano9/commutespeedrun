@@ -566,110 +566,148 @@ function scheduleLazyCommentsFetch(videoId) {
   }
 
   const lazyPromise = (async () => {
-    await new Promise((resolve) => setTimeout(resolve, COMMENT_FETCH_LAZY_DELAY_MS));
-    const cacheEntry = commentsCache.get(videoId);
-    if (!cacheEntry?.nextToken || cacheEntry.complete) {
-      return;
-    }
+    try {
+      await new Promise((resolve) => setTimeout(resolve, COMMENT_FETCH_LAZY_DELAY_MS));
+      const cacheEntry = commentsCache.get(videoId);
+      if (!cacheEntry?.nextToken || cacheEntry.complete) {
+        return;
+      }
 
-    const fetchConfig = getCommentFetchConfig();
-    const alreadyFetchedPages = Math.max(
-      1,
-      Number(cacheEntry.pagesFetched || fetchConfig.startupPages || 1)
-    );
-    const adaptiveExtraPages =
-      fetchConfig.adaptive && !fetchConfig.aggressive
-        ? getAdaptiveExtraPages(cacheEntry.comments)
-        : 0;
-    const desiredMaxPages = fetchConfig.aggressive
-      ? COMMENT_FETCH_HARD_MAX_PAGES
-      : Math.min(
-          COMMENT_FETCH_HARD_MAX_PAGES,
-          Math.max(fetchConfig.maxPages, alreadyFetchedPages + adaptiveExtraPages)
-        );
-    const remainingPageLimit = Math.max(1, desiredMaxPages - alreadyFetchedPages);
+      const fetchConfig = getCommentFetchConfig();
+      const alreadyFetchedPages = Math.max(
+        1,
+        Number(cacheEntry.pagesFetched || fetchConfig.startupPages || 1)
+      );
+      const adaptiveExtraPages =
+        fetchConfig.adaptive && !fetchConfig.aggressive
+          ? getAdaptiveExtraPages(cacheEntry.comments)
+          : 0;
+      const desiredMaxPages = fetchConfig.aggressive
+        ? COMMENT_FETCH_HARD_MAX_PAGES
+        : Math.min(
+            COMMENT_FETCH_HARD_MAX_PAGES,
+            Math.max(fetchConfig.maxPages, alreadyFetchedPages + adaptiveExtraPages)
+          );
+      const remainingPageLimit = Math.max(1, desiredMaxPages - alreadyFetchedPages);
 
-    const result = await fetchCommentsPages(
-      videoId,
-      cacheEntry.nextToken,
-      remainingPageLimit,
-      cacheEntry.comments,
-      {
-        onPage: async ({ freshPageComments, pageIndex }) => {
-          if (freshPageComments.length === 0) {
-            return;
+      const result = await fetchCommentsPages(
+        videoId,
+        cacheEntry.nextToken,
+        remainingPageLimit,
+        cacheEntry.comments,
+        {
+          onPage: async ({ freshPageComments, pageIndex }) => {
+            if (freshPageComments.length === 0) {
+              return;
+            }
+            if (!lastLivePageMarkerUpdates) {
+              return;
+            }
+            const {
+              allowLongMessages,
+              maxMessageChars,
+              hideTimestampOnlyMessages,
+              hideMultiTimestampMessages
+            } =
+              await getFilterSettings();
+            await sendCommentsPageUpdateToVideoTabs(
+              videoId,
+              freshPageComments,
+              allowLongMessages,
+              maxMessageChars,
+              hideTimestampOnlyMessages,
+              hideMultiTimestampMessages,
+              false,
+              {
+                pagesFetched: alreadyFetchedPages + Number(pageIndex || 0),
+                pagesTarget: Number.isFinite(desiredMaxPages) ? desiredMaxPages : null,
+                timestampsCount: null
+              }
+            );
           }
-          if (!lastLivePageMarkerUpdates) {
-            return;
-          }
-          const {
+        }
+      );
+      const actualTotalPagesFetched = alreadyFetchedPages + Number(result.pagesFetched || 0);
+      const reachedTargetLimit =
+        !fetchConfig.aggressive && actualTotalPagesFetched >= desiredMaxPages;
+      const shouldMarkComplete = !result.nextToken || reachedTargetLimit;
+      updateCacheEntry(videoId, result.comments, result.nextToken, shouldMarkComplete);
+      const updatedEntry = commentsCache.get(videoId);
+      if (updatedEntry) {
+        updatedEntry.pagesFetched = actualTotalPagesFetched;
+      }
+
+      const {
+        allowLongMessages,
+        maxMessageChars,
+        hideTimestampOnlyMessages,
+        hideMultiTimestampMessages
+      } = await getFilterSettings();
+      await sendCommentsToVideoTabs(
+        videoId,
+        result.comments,
+        allowLongMessages,
+        maxMessageChars,
+        hideTimestampOnlyMessages,
+        hideMultiTimestampMessages,
+        true,
+        {
+          pagesFetched: Number(updatedEntry?.pagesFetched || actualTotalPagesFetched) || null,
+          pagesTarget: shouldMarkComplete
+            ? Number(updatedEntry?.pagesFetched || actualTotalPagesFetched) || null
+            : Number.isFinite(desiredMaxPages)
+              ? desiredMaxPages
+              : null,
+          timestampsCount: commentsForSettings(
+            result.comments,
             allowLongMessages,
             maxMessageChars,
             hideTimestampOnlyMessages,
             hideMultiTimestampMessages
-          } =
-            await getFilterSettings();
-          await sendCommentsPageUpdateToVideoTabs(
-            videoId,
-            freshPageComments,
-            allowLongMessages,
-            maxMessageChars,
-            hideTimestampOnlyMessages,
-            hideMultiTimestampMessages,
-            false,
-            {
-              pagesFetched: alreadyFetchedPages + Number(pageIndex || 0),
-              pagesTarget: Number.isFinite(desiredMaxPages) ? desiredMaxPages : null,
-              timestampsCount: null
-            }
-          );
+          ).length
         }
+      );
+    } catch (_error) {
+      const fallbackEntry = commentsCache.get(videoId);
+      if (fallbackEntry) {
+        fallbackEntry.complete = true;
+        fallbackEntry.nextToken = null;
       }
-    );
-    const actualTotalPagesFetched = alreadyFetchedPages + Number(result.pagesFetched || 0);
-    const reachedTargetLimit =
-      !fetchConfig.aggressive && actualTotalPagesFetched >= desiredMaxPages;
-    const shouldMarkComplete = !result.nextToken || reachedTargetLimit;
-    updateCacheEntry(videoId, result.comments, result.nextToken, shouldMarkComplete);
-    const updatedEntry = commentsCache.get(videoId);
-    if (updatedEntry) {
-      updatedEntry.pagesFetched = actualTotalPagesFetched;
-    }
-
-    const {
-      allowLongMessages,
-      maxMessageChars,
-      hideTimestampOnlyMessages,
-      hideMultiTimestampMessages
-    } = await getFilterSettings();
-    await sendCommentsToVideoTabs(
-      videoId,
-      result.comments,
-      allowLongMessages,
-      maxMessageChars,
-      hideTimestampOnlyMessages,
-      hideMultiTimestampMessages,
-      true,
-      {
-        pagesFetched: Number(updatedEntry?.pagesFetched || actualTotalPagesFetched) || null,
-        pagesTarget: shouldMarkComplete
-          ? Number(updatedEntry?.pagesFetched || actualTotalPagesFetched) || null
-          : Number.isFinite(desiredMaxPages)
-            ? desiredMaxPages
-            : null,
-        timestampsCount: commentsForSettings(
-          result.comments,
+      try {
+        const {
           allowLongMessages,
           maxMessageChars,
           hideTimestampOnlyMessages,
           hideMultiTimestampMessages
-        ).length
+        } = await getFilterSettings();
+        const fallbackComments = Array.isArray(fallbackEntry?.comments)
+          ? fallbackEntry.comments
+          : [];
+        await sendCommentsToVideoTabs(
+          videoId,
+          fallbackComments,
+          allowLongMessages,
+          maxMessageChars,
+          hideTimestampOnlyMessages,
+          hideMultiTimestampMessages,
+          true,
+          {
+            pagesFetched: Number(fallbackEntry?.pagesFetched || 0) || null,
+            pagesTarget: Number(fallbackEntry?.pagesFetched || 0) || null,
+            timestampsCount: commentsForSettings(
+              fallbackComments,
+              allowLongMessages,
+              maxMessageChars,
+              hideTimestampOnlyMessages,
+              hideMultiTimestampMessages
+            ).length
+          }
+        );
+      } catch (__error) {
+        // Ignore fallback notification failures.
       }
-    );
+    }
   })()
-    .catch(() => {
-      // Ignore failed lazy fetches.
-    })
     .finally(() => {
       lazyFetchPromises.delete(videoId);
     });
@@ -943,6 +981,12 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
     return;
   }
   if (!(await isTabStillOnVideo(tabId, videoId))) {
+    await sendMessageWithRetry(tabId, {
+      type: "comments_replace",
+      comments: [],
+      complete: true,
+      progress: null
+    });
     return;
   }
   applyExperimentalGameSkin(tabId, videoId);
@@ -1040,7 +1084,37 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
       scheduleLazyCommentsFetch(videoId);
     }
   } catch (error) {
-    // Ignore failed fetches.
+    try {
+      const fallbackEntry = commentsCache.get(videoId);
+      if (fallbackEntry) {
+        fallbackEntry.complete = true;
+        fallbackEntry.nextToken = null;
+      }
+      const fallbackComments = Array.isArray(fallbackEntry?.comments)
+        ? fallbackEntry.comments
+        : [];
+      const reducedFallback = commentsForSettings(
+        fallbackComments,
+        allowLongMessages,
+        maxMessageChars,
+        hideTimestampOnlyMessages,
+        hideMultiTimestampMessages
+      );
+      if (await isTabStillOnVideo(tabId, videoId)) {
+        await sendMessageWithRetry(tabId, {
+          type: "comments_replace",
+          comments: reducedFallback,
+          complete: true,
+          progress: {
+            pagesFetched: Number(fallbackEntry?.pagesFetched || 0) || null,
+            pagesTarget: Number(fallbackEntry?.pagesFetched || 0) || null,
+            timestampsCount: reducedFallback.length
+          }
+        });
+      }
+    } catch (_fallbackError) {
+      // Ignore fallback notification failures.
+    }
   }
 }
 

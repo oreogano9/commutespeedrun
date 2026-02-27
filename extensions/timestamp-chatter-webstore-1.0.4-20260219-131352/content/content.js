@@ -481,6 +481,15 @@ let quickMenuStatusText = "";
 let quickMenuStatusTimerId = null;
 let quickMenuGlobalDocumentHandlersAttached = false;
 let quickMenuMenuElement = null;
+let commentDraftPopupOpen = false;
+let commentDraftPopupElement = null;
+let commentDraftTextareaElement = null;
+let commentDraftTimestampSeconds = null;
+let commentDraftStatusText = "";
+let commentDraftStatusTone = "";
+let commentDraftHotkeyHandlersAttached = false;
+let notificationsSuppressedByDraftPopup = false;
+let commentDraftOpenSeq = 0;
 const QUICK_MENU_SCAN_DEBUG_MAX_ENTRIES = 20;
 let quickMenuScanDebugEntries = [];
 let tabSessionRaritySkinOverride = null;
@@ -492,6 +501,13 @@ const QUICK_MENU_RARE_COMMENTS_PRESETS = Object.freeze([
   { label: "High", ratio: 1.5 },
   { label: "Very High", ratio: 1.05 }
 ]);
+const COMMENT_DRAFT_SHORTCUT_HINT_MAC = "⌘⇧A";
+const COMMENT_DRAFT_SHORTCUT_HINT_WIN = "Ctrl+Shift+A";
+const COMMENT_DRAFT_POPUP_DEFAULT_LEFT_PX = 64;
+const COMMENT_DRAFT_POPUP_DEFAULT_BOTTOM_PX = 64;
+const COMMENT_DRAFT_POPUP_PLAYER_CONTROLS_BOTTOM_PX = 128;
+const COMMENT_DRAFT_TIMESTAMP_PREFIX_REGEX = /^\s*(\d{1,}:\d{2}(?::\d{2})?)\s*/;
+const COMMENT_DRAFT_TIMESTAMP_ANY_REGEX = /(\d{1,}:\d{2}(?::\d{2})?)/;
 
 function isTabOverlayEnabled() {
   if (!isActive) {
@@ -872,6 +888,9 @@ function setQuickMenuPanel(panelName) {
 
 function setQuickMenuOpen(nextOpen) {
   quickMenuOpen = Boolean(nextOpen);
+  if (quickMenuOpen && commentDraftPopupOpen) {
+    setCommentDraftPopupOpen(false, { resetDraft: true });
+  }
   if (!quickMenuOpen) {
     quickMenuActivePanel = "main";
   }
@@ -895,6 +914,513 @@ function positionQuickMenu(button, menu) {
   menu.style.top = `${clampedTop}px`;
   menu.style.bottom = "auto";
   menu.style.right = "auto";
+}
+
+function getCommentDraftShortcutHint() {
+  try {
+    return /Mac|iPhone|iPad|iPod/i.test(navigator.platform || "")
+      ? COMMENT_DRAFT_SHORTCUT_HINT_MAC
+      : COMMENT_DRAFT_SHORTCUT_HINT_WIN;
+  } catch (_error) {
+    return COMMENT_DRAFT_SHORTCUT_HINT_WIN;
+  }
+}
+
+function isEditableElement(node) {
+  const element = node instanceof Element ? node : node?.parentElement;
+  if (!element) {
+    return false;
+  }
+  if (element.closest("textarea, input, [contenteditable='true'], [contenteditable='']")) {
+    return true;
+  }
+  return false;
+}
+
+function getCommentDraftPopupHost() {
+  return overlayElement || getOverlayHost() || document.body;
+}
+
+function getCommentDraftPopupTextareaValue() {
+  return String(commentDraftTextareaElement?.value || "");
+}
+
+function autosizeCommentDraftTextarea() {
+  const textarea = commentDraftTextareaElement;
+  if (!textarea) {
+    return;
+  }
+  const minHeightPx = 40;
+  const maxHeightPx = 220;
+  textarea.style.height = `${minHeightPx}px`;
+  const scrollHeight = Math.max(minHeightPx, Number(textarea.scrollHeight) || minHeightPx);
+  const nextHeight = Math.min(maxHeightPx, scrollHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = scrollHeight > maxHeightPx ? "auto" : "hidden";
+}
+
+function setCommentDraftStatus(text = "", tone = "") {
+  commentDraftStatusText = String(text || "");
+  commentDraftStatusTone = String(tone || "");
+  updateCommentDraftPopupView();
+}
+
+function resetCommentDraftPopupState() {
+  commentDraftTimestampSeconds = null;
+  commentDraftStatusText = "";
+  commentDraftStatusTone = "";
+  if (commentDraftTextareaElement) {
+    commentDraftTextareaElement.value = "";
+    autosizeCommentDraftTextarea();
+  }
+}
+
+function formatDraftTimestamp(seconds) {
+  return formatTime(Math.max(0, Number(seconds) || 0));
+}
+
+function makeCommentDraftPrefillText(seconds) {
+  return `${formatDraftTimestamp(seconds)} `;
+}
+
+function replaceDraftTimestampPrefix(textValue, seconds) {
+  const nextTimestamp = formatDraftTimestamp(seconds);
+  const nextPrefix = `${nextTimestamp} `;
+  const text = String(textValue || "");
+  const match = COMMENT_DRAFT_TIMESTAMP_PREFIX_REGEX.exec(text);
+  if (match) {
+    return `${nextPrefix}${text.slice(match[0].length)}`;
+  }
+  if (COMMENT_DRAFT_TIMESTAMP_ANY_REGEX.test(text)) {
+    return text.replace(COMMENT_DRAFT_TIMESTAMP_ANY_REGEX, nextTimestamp);
+  }
+  return `${nextPrefix}${text}`;
+}
+
+function setCommentDraftPopupNotificationsSuppressed(nextSuppressed) {
+  notificationsSuppressedByDraftPopup = Boolean(nextSuppressed);
+  if (overlayElement) {
+    overlayElement.classList.toggle(
+      "comment-draft-popup-open",
+      notificationsSuppressedByDraftPopup
+    );
+  }
+}
+
+function positionCommentDraftPopup() {
+  if (!commentDraftPopupElement || !commentDraftPopupElement.isConnected) {
+    return;
+  }
+  const host = getCommentDraftPopupHost();
+  const bottomPx = COMMENT_DRAFT_POPUP_DEFAULT_BOTTOM_PX;
+  if (host !== document.body && window.getComputedStyle(host).position === "static") {
+    host.style.position = "relative";
+  }
+  const isTop = position === "top-left" || position === "top-right";
+  const isRight = position === "top-right" || position === "bottom-right";
+  const topBottomPx = isTop ? COMMENT_DRAFT_POPUP_DEFAULT_BOTTOM_PX : bottomPx;
+  commentDraftPopupElement.style.left = isRight ? "auto" : `${COMMENT_DRAFT_POPUP_DEFAULT_LEFT_PX}px`;
+  commentDraftPopupElement.style.right = isRight ? `${COMMENT_DRAFT_POPUP_DEFAULT_LEFT_PX}px` : "auto";
+  commentDraftPopupElement.style.top = isTop ? `${topBottomPx}px` : "auto";
+  commentDraftPopupElement.style.bottom = isTop ? "auto" : `${topBottomPx}px`;
+}
+
+function updateCommentDraftTimestampUi() {
+  if (!commentDraftPopupElement) {
+    return;
+  }
+  const label = commentDraftPopupElement.querySelector(".js-comment-draft-timestamp");
+  if (label) {
+    label.textContent =
+      commentDraftTimestampSeconds === null
+        ? "0:00"
+        : formatDraftTimestamp(commentDraftTimestampSeconds);
+  }
+}
+
+function updateCommentDraftPopupView() {
+  const popup = commentDraftPopupElement;
+  if (!popup) {
+    return;
+  }
+  popup.classList.toggle("open", commentDraftPopupOpen);
+  popup.setAttribute("aria-hidden", commentDraftPopupOpen ? "false" : "true");
+  updateCommentDraftTimestampUi();
+  const hint = popup.querySelector(".js-comment-draft-shortcut");
+  if (hint) {
+    hint.textContent = getCommentDraftShortcutHint();
+  }
+  const status = popup.querySelector(".js-comment-draft-status");
+  if (status) {
+    status.textContent = commentDraftStatusText || "";
+    status.hidden = !commentDraftStatusText;
+    status.classList.toggle("is-error", commentDraftStatusTone === "error");
+    status.classList.toggle("is-success", commentDraftStatusTone === "success");
+  }
+  const textarea = popup.querySelector(".js-comment-draft-textarea");
+  if (textarea && textarea !== commentDraftTextareaElement) {
+    commentDraftTextareaElement = textarea;
+  }
+  setCommentDraftPopupNotificationsSuppressed(commentDraftPopupOpen);
+  positionCommentDraftPopup();
+}
+
+function ensureCommentDraftPopup() {
+  const host = getCommentDraftPopupHost();
+  if (!host) {
+    return null;
+  }
+  if (host !== document.body && window.getComputedStyle(host).position === "static") {
+    host.style.position = "relative";
+  }
+  if (commentDraftPopupElement && commentDraftPopupElement.isConnected) {
+    if (commentDraftPopupElement.parentElement !== host) {
+      host.appendChild(commentDraftPopupElement);
+    }
+    updateCommentDraftPopupView();
+    return commentDraftPopupElement;
+  }
+  const popup = document.createElement("div");
+  popup.className = "__tc-comment-draft-popup";
+  popup.setAttribute("role", "dialog");
+  popup.setAttribute("aria-label", "Timestamp comment draft");
+  popup.setAttribute("aria-hidden", "true");
+  popup.innerHTML = `
+    <div class="__tc-comment-draft-bar">
+      <div class="__tc-comment-draft-stack" aria-label="Timestamp adjuster">
+        <button type="button" class="__tc-comment-draft-small-btn __tc-comment-draft-step js-comment-draft-step" data-step="1" aria-label="Move timestamp forward 1 second" title="Timestamp +1s">+</button>
+        <button type="button" class="__tc-comment-draft-small-btn __tc-comment-draft-step js-comment-draft-step" data-step="-1" aria-label="Move timestamp back 1 second" title="Timestamp -1s">-</button>
+      </div>
+      <textarea class="__tc-comment-draft-textarea js-comment-draft-textarea" rows="1" spellcheck="true" placeholder="Write..." aria-label="Comment draft"></textarea>
+      <div class="__tc-comment-draft-group __tc-comment-draft-group-attached">
+        <button type="button" class="__tc-comment-draft-clear js-comment-draft-clear" aria-label="Close draft popup" title="Close">×</button>
+        <button type="button" class="__tc-comment-draft-post js-comment-draft-post" aria-label="Insert into YouTube comment box" title="Insert into comment box">Post</button>
+      </div>
+    </div>
+    <div class="__tc-comment-draft-status js-comment-draft-status" hidden></div>
+  `;
+  host.appendChild(popup);
+  commentDraftPopupElement = popup;
+  commentDraftTextareaElement = popup.querySelector(".js-comment-draft-textarea");
+
+  popup.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+  const stopPopupKeyEvent = (event) => {
+    event.stopPropagation();
+    if (event.type === "keydown" && event.key === "Escape") {
+      event.preventDefault();
+      setCommentDraftPopupOpen(false, { resetDraft: true });
+    }
+  };
+  popup.addEventListener("keydown", stopPopupKeyEvent);
+  popup.addEventListener("keyup", stopPopupKeyEvent);
+  popup.addEventListener("keypress", stopPopupKeyEvent);
+  const clearBtn = popup.querySelector(".js-comment-draft-clear");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      setCommentDraftPopupOpen(false, { resetDraft: true });
+    });
+  }
+  popup.querySelectorAll(".js-comment-draft-step").forEach((button) => {
+    button.addEventListener("click", () => {
+      const delta = Number(button.getAttribute("data-step") || 0);
+      nudgeCommentDraftTimestamp(delta);
+    });
+  });
+  const postBtn = popup.querySelector(".js-comment-draft-post");
+  if (postBtn) {
+    postBtn.addEventListener("click", async () => {
+      await insertCommentDraftIntoYouTubeComposer();
+    });
+  }
+  if (commentDraftTextareaElement) {
+    commentDraftTextareaElement.addEventListener("input", () => {
+      autosizeCommentDraftTextarea();
+      if (commentDraftStatusText) {
+        setCommentDraftStatus("", "");
+      }
+    });
+  }
+  updateCommentDraftPopupView();
+  return popup;
+}
+
+function focusCommentDraftTextareaAtEnd(openSeq = commentDraftOpenSeq) {
+  requestAnimationFrame(() => {
+    if (!commentDraftPopupOpen || openSeq !== commentDraftOpenSeq) {
+      return;
+    }
+    const textarea = commentDraftTextareaElement;
+    if (!textarea) {
+      return;
+    }
+    textarea.focus({ preventScroll: true });
+    const end = textarea.value.length;
+    textarea.setSelectionRange(end, end);
+  });
+}
+
+function setCommentDraftPopupOpen(nextOpen, options = {}) {
+  const open = Boolean(nextOpen);
+  ensureCommentDraftPopup();
+  if (!commentDraftPopupElement) {
+    return;
+  }
+  if (!open) {
+    commentDraftPopupOpen = false;
+    if (options.resetDraft !== false) {
+      resetCommentDraftPopupState();
+    }
+    updateCommentDraftPopupView();
+    return;
+  }
+  if (quickMenuOpen) {
+    setQuickMenuOpen(false);
+  }
+  const video = getVideo();
+  const rawTime = Number(video?.currentTime || 0);
+  commentDraftTimestampSeconds = Math.max(0, Number.isFinite(rawTime) ? rawTime : 0);
+  commentDraftStatusText = "";
+  commentDraftStatusTone = "";
+  commentDraftPopupOpen = true;
+  if (commentDraftTextareaElement) {
+    commentDraftTextareaElement.value = makeCommentDraftPrefillText(commentDraftTimestampSeconds);
+    autosizeCommentDraftTextarea();
+  }
+  commentDraftOpenSeq += 1;
+  updateCommentDraftPopupView();
+  focusCommentDraftTextareaAtEnd(commentDraftOpenSeq);
+}
+
+function nudgeCommentDraftTimestamp(deltaSeconds) {
+  const delta = Math.trunc(Number(deltaSeconds) || 0);
+  if (!delta) {
+    return;
+  }
+  const video = getVideo();
+  if (!video) {
+    setCommentDraftStatus("No video found on this page.", "error");
+    return;
+  }
+  const duration = Number(video.duration);
+  const maxTime = Number.isFinite(duration) && duration > 0 ? duration : Number.POSITIVE_INFINITY;
+  const base = Number.isFinite(Number(commentDraftTimestampSeconds))
+    ? Number(commentDraftTimestampSeconds)
+    : Number(video.currentTime || 0);
+  const next = clamp(base + delta, 0, maxTime);
+  commentDraftTimestampSeconds = next;
+  try {
+    video.pause();
+  } catch (_error) {}
+  try {
+    video.currentTime = next;
+  } catch (_error) {}
+  if (commentDraftTextareaElement) {
+    commentDraftTextareaElement.value = replaceDraftTimestampPrefix(
+      commentDraftTextareaElement.value,
+      next
+    );
+    autosizeCommentDraftTextarea();
+  }
+  setCommentDraftStatus("", "");
+}
+
+async function waitForElement(getter, timeoutMs = 1800, stepMs = 60) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const node = getter();
+    if (node) {
+      return node;
+    }
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
+  return getter() || null;
+}
+
+function getYouTubeCommentSimplebox() {
+  return (
+    document.querySelector("ytd-comments ytd-comment-simplebox-renderer") ||
+    document.querySelector("ytd-comment-simplebox-renderer")
+  );
+}
+
+function getYouTubeCommentComposerEditor() {
+  return (
+    document.querySelector("ytd-comments ytd-comment-simplebox-renderer #contenteditable-root[contenteditable='true']") ||
+    document.querySelector("ytd-comments ytd-comment-simplebox-renderer div[contenteditable='true'][role='textbox']") ||
+    document.querySelector("ytd-comments #contenteditable-root[contenteditable='true']") ||
+    document.querySelector("ytd-comments div[contenteditable='true'][role='textbox']")
+  );
+}
+
+function getYouTubeCommentComposerActivator(simplebox) {
+  if (!simplebox) {
+    return null;
+  }
+  return (
+    simplebox.querySelector("#simple-box") ||
+    simplebox.querySelector("#placeholder-area") ||
+    simplebox.querySelector("#placeholder") ||
+    simplebox.querySelector('[role="button"]')
+  );
+}
+
+function dispatchInputEventsForContentEditable(editor) {
+  try {
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+  } catch (_error) {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+function replaceContentEditableText(editor, text) {
+  if (!editor) {
+    return false;
+  }
+  try {
+    editor.focus({ preventScroll: true });
+  } catch (_error) {
+    try {
+      editor.focus();
+    } catch (__error) {}
+  }
+
+  const selection = window.getSelection?.();
+  if (selection && typeof document.createRange === "function") {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  let inserted = false;
+  try {
+    inserted = Boolean(document.execCommand && document.execCommand("insertText", false, text));
+  } catch (_error) {
+    inserted = false;
+  }
+
+  if (!inserted) {
+    editor.textContent = text;
+    dispatchInputEventsForContentEditable(editor);
+    return true;
+  }
+
+  dispatchInputEventsForContentEditable(editor);
+  return true;
+}
+
+async function tryClipboardFallbackForCommentDraft(text) {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_error) {}
+  return false;
+}
+
+async function insertCommentDraftIntoYouTubeComposer() {
+  const draftText = getCommentDraftPopupTextareaValue();
+  if (!draftText.trim()) {
+    setCommentDraftStatus("Write something before posting to comment box.", "error");
+    return false;
+  }
+
+  let simplebox = getYouTubeCommentSimplebox();
+  if (!simplebox) {
+    setCommentDraftStatus("Comments unavailable on this video.", "error");
+    const copied = await tryClipboardFallbackForCommentDraft(draftText);
+    if (copied) {
+      setCommentDraftPopupOpen(false, { resetDraft: true });
+      return true;
+    }
+    setCommentDraftStatus("Comments unavailable on this video.", "error");
+    return false;
+  }
+
+  try {
+    simplebox.scrollIntoView({ block: "center", behavior: "smooth" });
+  } catch (_error) {}
+
+  let editor = getYouTubeCommentComposerEditor();
+  if (!editor) {
+    const activator = getYouTubeCommentComposerActivator(simplebox);
+    if (activator) {
+      try {
+        activator.click();
+      } catch (_error) {}
+    }
+    editor = await waitForElement(() => getYouTubeCommentComposerEditor(), 2200, 70);
+  }
+
+  if (!editor) {
+    const copied = await tryClipboardFallbackForCommentDraft(draftText);
+    if (copied) {
+      setCommentDraftPopupOpen(false, { resetDraft: true });
+      return true;
+    }
+    setCommentDraftStatus("Couldn't find YouTube comment box.", "error");
+    return false;
+  }
+
+  const inserted = replaceContentEditableText(editor, draftText);
+  if (!inserted) {
+    const copied = await tryClipboardFallbackForCommentDraft(draftText);
+    if (copied) {
+      setCommentDraftPopupOpen(false, { resetDraft: true });
+      return true;
+    }
+    setCommentDraftStatus("Couldn't insert into YouTube comment box.", "error");
+    return false;
+  }
+
+  setCommentDraftPopupOpen(false, { resetDraft: true });
+  return true;
+}
+
+function attachCommentDraftPopupHandlersOnce() {
+  if (commentDraftHotkeyHandlersAttached) {
+    return;
+  }
+  commentDraftHotkeyHandlersAttached = true;
+  document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    if (event.repeat) {
+      return;
+    }
+    if (event.altKey) {
+      return;
+    }
+    const key = String(event.key || "").toLowerCase();
+    if (key !== "a") {
+      return;
+    }
+    const modPressed = Boolean(event.metaKey || event.ctrlKey);
+    if (!modPressed || !event.shiftKey) {
+      return;
+    }
+
+    const target = event.target;
+    const insideDraftPopup =
+      target instanceof Node &&
+      commentDraftPopupElement &&
+      commentDraftPopupElement.contains(target);
+    if (isEditableElement(target) && !insideDraftPopup) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === "function") {
+      event.stopImmediatePropagation();
+    }
+
+    setCommentDraftPopupOpen(!commentDraftPopupOpen, { resetDraft: true });
+  }, true);
 }
 
 function repositionQuickMenuIfOpen() {
@@ -3047,6 +3573,7 @@ function updateLaneVisibility() {
     const visible = corner === position;
     lane.classList.toggle("hidden", !visible);
   }
+  overlayElement.classList.toggle("comment-draft-popup-open", notificationsSuppressedByDraftPopup);
   applyFreeLanePosition();
   updateEyeToggleVisibility();
 }
@@ -3327,6 +3854,7 @@ function applyOverlayStyles() {
   overlayElement.dataset.skinRenderer = "dynamic";
   overlayElement.classList.toggle("debug-mode", debugMode);
   updateLaneVisibility();
+  positionCommentDraftPopup();
 }
 
 function isVideoInFullscreen() {
@@ -3598,12 +4126,8 @@ async function main() {
     scheduleCommentsRequest(
       videoId,
       0,
-      clamp(
-        Number(commentScanStartDelaySec ?? DEFAULT_COMMENT_SCAN_START_DELAY_SEC),
-        MIN_COMMENT_SCAN_START_DELAY_SEC,
-        MAX_COMMENT_SCAN_START_DELAY_SEC
-      ) * 1000,
-      "startup_delay"
+      0,
+      "startup_immediate"
     );
   }
 }
@@ -3765,7 +4289,11 @@ function ensureOverlayAttached() {
     host.appendChild(overlayElement);
     debugLog("Reattached overlay to host", host.className || host.id || host.tagName);
   }
+  if (commentDraftPopupElement && commentDraftPopupElement.parentElement !== overlayElement) {
+    overlayElement.appendChild(commentDraftPopupElement);
+  }
   ensureReactNotificationOverlayMounted();
+  updateCommentDraftPopupView();
   return true;
 }
 
@@ -3783,6 +4311,8 @@ function createInterface() {
     ensureReactNotificationOverlayMounted();
     applyOverlayStyles();
     updateLaneVisibility();
+    ensureCommentDraftPopup();
+    attachCommentDraftPopupHandlersOnce();
     updateEyeToggleVisibility();
     scheduleEyeToggleBootstrap();
     scheduleEyeToggleHeartbeat();
@@ -3799,6 +4329,8 @@ function createInterface() {
 
   host.appendChild(overlayElement);
   ensureOverlayAttached();
+  ensureCommentDraftPopup();
+  attachCommentDraftPopupHandlersOnce();
   updateEyeToggleVisibility();
   scheduleEyeToggleBootstrap();
   scheduleEyeToggleHeartbeat();
@@ -4805,6 +5337,11 @@ function resetVariables() {
   quickMenuStatusText = "";
   notificationsMutedByEye = false;
   localOverlayForceEnabledWhileGlobalOff = false;
+  commentDraftPopupOpen = false;
+  notificationsSuppressedByDraftPopup = false;
+  commentDraftTimestampSeconds = null;
+  commentDraftStatusText = "";
+  commentDraftStatusTone = "";
   eyeVisualState = EYE_STATE_LOADING;
   if (quickMenuMenuElement && quickMenuMenuElement.parentElement) {
     quickMenuMenuElement.remove();
@@ -4816,6 +5353,11 @@ function resetVariables() {
     // ignore teardown errors
   }
   reactNotificationsOverlayMounted = false;
+  if (commentDraftPopupElement && commentDraftPopupElement.parentElement) {
+    commentDraftPopupElement.remove();
+  }
+  commentDraftPopupElement = null;
+  commentDraftTextareaElement = null;
   if (eyeToggleElement && eyeToggleElement.parentElement) {
     eyeToggleElement.remove();
   }
@@ -4858,9 +5400,11 @@ if (document.readyState === "complete") {
 
 document.addEventListener("fullscreenchange", () => {
   applyOverlayStyles();
+  positionCommentDraftPopup();
 });
 document.addEventListener("webkitfullscreenchange", () => {
   applyOverlayStyles();
+  positionCommentDraftPopup();
 });
 
 locationChange(() => {
