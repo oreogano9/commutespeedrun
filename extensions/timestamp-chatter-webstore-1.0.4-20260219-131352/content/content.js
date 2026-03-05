@@ -38,6 +38,7 @@ let autoSkinDetectTimerId = null;
 let commentsScanInProgress = false;
 let monitoredVideo = null;
 let videoMonitorHandlers = null;
+let notificationOrderSequence = 0;
 const settingsSchema = globalThis.TimestampChatterSettingsSchema || null;
 
 const DEFAULT_OVERLAY_SCALE = 1.05;
@@ -64,6 +65,10 @@ const DEFAULT_HEATMAP_INTENSITY = 500;
 const DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS =
   settingsSchema?.defaults?.showAuthorInNotifications ?? true;
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
+const DEFAULT_NOTIFICATION_ORDER_MODE =
+  String(settingsSchema?.defaults?.notificationOrderMode || "recency") === "recency"
+    ? "recency"
+    : "likes";
 const DEFAULT_SHOW_UPCOMING_DOT =
   settingsSchema?.defaults?.showUpcomingDot ?? true;
 const DEFAULT_STACK_OPACITY_FADE_ENABLED =
@@ -112,6 +117,7 @@ let timelineMarkersEnabled = settingsSchema?.defaults?.timelineMarkersEnabled ??
 let heatmapIntensity = DEFAULT_HEATMAP_INTENSITY;
 let showAuthorInNotifications = DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS;
 let showLikesInNotifications = DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS;
+let notificationOrderMode = DEFAULT_NOTIFICATION_ORDER_MODE;
 let showUpcomingDot = DEFAULT_SHOW_UPCOMING_DOT;
 let stackOpacityFadeEnabled = DEFAULT_STACK_OPACITY_FADE_ENABLED;
 let stackOpacityFadeStart = DEFAULT_STACK_OPACITY_FADE_START;
@@ -1599,6 +1605,11 @@ async function sendQuickOverlaySettingPatch(patch = {}) {
       if (Object.prototype.hasOwnProperty.call(patch, "showLikesInNotifications")) {
         storagePatch.showLikesInNotifications = Boolean(patch.showLikesInNotifications);
       }
+      if (Object.prototype.hasOwnProperty.call(patch, "notificationOrderMode")) {
+        storagePatch.notificationOrderMode = normalizeNotificationOrderMode(
+          patch.notificationOrderMode
+        );
+      }
       if (Object.prototype.hasOwnProperty.call(patch, "showRarityLabelInNotifications")) {
         storagePatch.showRarityLabelInNotifications = Boolean(patch.showRarityLabelInNotifications);
       }
@@ -1867,6 +1878,7 @@ function ensureQuickMenuContent() {
         <div class="menu-item" data-action="toggle-markers"><span>Timeline Markers</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="toggle-heatmap"><span>Heatmap</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="toggle-dot"><span>Warning dot</span><div class="toggle-switch"></div></div>
+        <div class="menu-item" data-action="toggle-notification-order"><span>Popularity order</span><div class="toggle-switch"></div></div>
         <div class="menu-item" data-action="open-skins"><span>Rarity skin</span><span class="selected-value js-current-skin"></span></div>
         <div class="menu-item-status menu-item-status-control" data-role="rare-comments-control">
           <div class="menu-control-row">
@@ -1958,6 +1970,18 @@ function ensureQuickMenuContent() {
     }
     if (action === "toggle-dot") {
       await setShowUpcomingDotFromQuickMenu(!showUpcomingDot);
+      return;
+    }
+    if (action === "toggle-notification-order") {
+      const nextMode = notificationOrderMode === "recency" ? "likes" : "recency";
+      notificationOrderMode = normalizeNotificationOrderMode(nextMode);
+      refreshActiveCardVisualsForCurrentSkin();
+      pushReactNotificationOverlayState();
+      await sendQuickOverlaySettingPatch({ notificationOrderMode });
+      setQuickMenuStatus(
+        `Popularity order: ${notificationOrderMode === "likes" ? "On" : "Off"}`
+      );
+      updateEyeToggleVisibility();
       return;
     }
     if (action === "open-skins") {
@@ -2070,6 +2094,7 @@ function updateEyeIconElement(force = false) {
     setSwitch("toggle-markers", timelineMarkersEnabled);
     setSwitch("toggle-heatmap", heatmapEnabled);
     setSwitch("toggle-dot", showUpcomingDot);
+    setSwitch("toggle-notification-order", notificationOrderMode === "likes");
 
     const globalLabel = menu.querySelector('.menu-item[data-action="toggle-global"] > span');
     if (globalLabel) {
@@ -2327,6 +2352,10 @@ function normalizeRaritySkin(value) {
 
 function normalizeRarityLogicMode(value) {
   return RARITY_LOGIC_MODE_VALUES.includes(value) ? value : DEFAULT_RARITY_LOGIC_MODE;
+}
+
+function normalizeNotificationOrderMode(value) {
+  return String(value || "").toLowerCase() === "recency" ? "recency" : "likes";
 }
 
 function normalizeHiddenRarityTiersBySkin(value) {
@@ -3323,6 +3352,20 @@ function resolveCommentCorner(comment) {
   return position;
 }
 
+function getNotificationTierRank(likesCount, comment = null) {
+  if (Boolean(comment?.isChapterComment)) {
+    return 0;
+  }
+  return getTierRank(likesCount, comment);
+}
+
+function getNotificationTierDisplayLabel(comment, fallbackLabel = "") {
+  if (Boolean(comment?.isChapterComment)) {
+    return "Chapter";
+  }
+  return String(fallbackLabel || "");
+}
+
 function getTierRank(likesCount, comment = null) {
   const numericLikes = Number(likesCount || 0);
   if (!Number.isFinite(numericLikes) || numericLikes <= 0) {
@@ -3354,8 +3397,13 @@ function getHeatmapCommentWeight(comment) {
   return Number(tierConfig?.heatmapWeight) || 1;
 }
 
-function getTierOrderForCorner(corner, tierRank, likesCount = 0) {
+function getTierOrderForCorner(corner, tierRank, likesCount = 0, createdSeq = 0) {
   const isTopCorner = corner === "top-left" || corner === "top-right";
+  if (notificationOrderMode === "recency") {
+    const safeSeq = Math.max(0, Math.floor(Number(createdSeq) || 0));
+    // Newest cards should be closest to the corner anchor.
+    return isTopCorner ? -safeSeq : safeSeq;
+  }
   const tierBand = 1_000_000;
   const safeTier = Math.max(0, Math.floor(Number(tierRank) || 0));
   const safeLikes = Math.max(
@@ -3988,6 +4036,7 @@ async function getOverlaySettings() {
       "heatmapIntensity",
       "showAuthorInNotifications",
       "showLikesInNotifications",
+      "notificationOrderMode",
       "showUpcomingDot",
       "stackOpacityFadeEnabled",
       "stackOpacityFadeStart",
@@ -4131,6 +4180,9 @@ async function getOverlaySettings() {
       : Boolean(
           values?.showLikesInNotifications ?? DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS
         );
+  notificationOrderMode = normalizeNotificationOrderMode(
+    values?.notificationOrderMode ?? DEFAULT_NOTIFICATION_ORDER_MODE
+  );
   showRarityLabelInNotifications =
     presetProfile === "minimal"
       ? false
@@ -4710,12 +4762,20 @@ function renderTimeMarkers() {
     marker.classList.add(`skin-${normalizeRaritySkin(raritySkin)}`);
     const highestTierRank = groupedComments.reduce((currentMax, comment) => {
       const likesCount = Number(comment?.likes || 0);
-      return Math.max(currentMax, getTierRank(likesCount, comment));
+      return Math.max(currentMax, getNotificationTierRank(likesCount, comment));
     }, 0);
     const highestTierName = getTierName(highestTierRank);
     marker.classList.add(`tier-${highestTierName}`);
     const tierConfig = getTierConfigByKey(highestTierName);
     applyTierMarkerVisualStyle(marker, tierConfig, highestTierRank);
+    const hasChapterComment = groupedComments.some((comment) =>
+      Boolean(comment?.isChapterComment)
+    );
+    if (hasChapterComment) {
+      marker.style.background = "#ffffff";
+      marker.style.backgroundImage = "none";
+      marker.style.boxShadow = "none";
+    }
     const offset = (time / video.duration) * 100;
     marker.style.left = `${offset}%`;
 
@@ -5014,25 +5074,37 @@ function refreshActiveCardVisualsForCurrentSkin() {
     const comment = cardState?.comment;
     if (!comment) continue;
     const likesCount = Number(comment?.likes || 0);
-    const tierRank = getTierRank(likesCount, comment);
+    const tierRank = getNotificationTierRank(likesCount, comment);
     const tierName = getTierName(tierRank);
     const tierConfig = getTierConfigByKey(tierName);
     cardState.tierName = tierName;
     cardState.tierClass = `${tierName}-liked`;
     cardState.reactTier = buildReactTierForComment(tierName, tierConfig, tierRank);
+    const tierDisplayLabel = getNotificationTierDisplayLabel(
+      comment,
+      cardState.reactTier?.name
+    );
     cardState.likesText = buildLikesMetaLabel(
       comment,
       tierName,
-      cardState.reactTier?.name
+      tierDisplayLabel
     );
     cardState.showMeta =
       showAuthorInNotifications ||
       showLikesInNotifications ||
       showRarityLabelInNotifications;
+    if (!Number.isFinite(Number(cardState.createdSeq))) {
+      cardState.createdSeq = ++notificationOrderSequence;
+    }
     if (cardState.targetCorner) {
       cardState.order = cardState.pinnedTowardCorner
         ? getPinnedOrderTowardCorner(cardState.targetCorner, cardState.pinnedPrioritySeq)
-        : getTierOrderForCorner(cardState.targetCorner, tierRank, likesCount);
+        : getTierOrderForCorner(
+            cardState.targetCorner,
+            tierRank,
+            likesCount,
+            cardState.createdSeq
+          );
     }
   }
 }
@@ -5286,12 +5358,14 @@ function showOverlay(comment, accentDelayMs = 0) {
   }
 
   const likesCount = Number(comment?.likes || 0);
-  const tierRank = getTierRank(likesCount, comment);
+  const tierRank = getNotificationTierRank(likesCount, comment);
   const tierName = getTierName(tierRank);
   const tierConfig = getTierConfigByKey(tierName);
-  const cardOrder = getTierOrderForCorner(targetCorner, tierRank, likesCount);
+  const createdSeq = ++notificationOrderSequence;
+  const cardOrder = getTierOrderForCorner(targetCorner, tierRank, likesCount, createdSeq);
   const reactTier = buildReactTierForComment(tierName, tierConfig, tierRank);
-  const likesText = buildLikesMetaLabel(comment, tierName, reactTier?.name);
+  const tierDisplayLabel = getNotificationTierDisplayLabel(comment, reactTier?.name);
+  const likesText = buildLikesMetaLabel(comment, tierName, tierDisplayLabel);
   const playbackRate = getActivePlaybackRate();
 
   const cardState = {
@@ -5300,6 +5374,7 @@ function showOverlay(comment, accentDelayMs = 0) {
     comment,
     targetCorner,
     order: cardOrder,
+    createdSeq,
     pinnedTowardCorner: false,
     pinnedPrioritySeq: 0,
     tierName,
@@ -5471,7 +5546,9 @@ function resetVariables() {
   renderMarkersRafId = null;
   laneElements = new Map();
   activeTierThresholds = Object.create(null);
+  notificationOrderSequence = 0;
   showAuthorInNotifications = DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS;
+  notificationOrderMode = DEFAULT_NOTIFICATION_ORDER_MODE;
   showRarityLabelInNotifications = DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS;
   timelineMarkersEnabled = true;
   raritySkin = DEFAULT_RARITY_SKIN;
@@ -5655,6 +5732,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       messagePresetProfile === "minimal"
         ? false
         : Boolean(message.showLikesInNotifications ?? showLikesInNotifications);
+    notificationOrderMode = normalizeNotificationOrderMode(
+      message.notificationOrderMode ?? notificationOrderMode
+    );
     showUpcomingDot = Boolean(
       message.showUpcomingDot ?? showUpcomingDot
     );

@@ -21,7 +21,8 @@
         "content/content.js"
       ],
       "matches": [
-        "https://*.youtube.com/*"
+        "https://*.youtube.com/watch*",
+        "https://*.youtube.com/embed/*"
       ],
       "run_at": "document_start"
     }
@@ -48,13 +49,13 @@
     "128": "icons/128x128.png"
   },
   "manifest_version": 3,
-  "name": "Timestamp Chatter",
+  "name": "Timestamp Chatter for Youtube",
   "permissions": [
     "storage",
     "declarativeNetRequestWithHostAccess",
     "tabs"
   ],
-  "version": "1.1.0",
+  "version": "1.1.2",
   "web_accessible_resources": [
     {
       "matches": [

@@ -27,6 +27,10 @@ const DEFAULT_HEATMAP_INTENSITY = 500;
 const DEFAULT_SHOW_AUTHOR_IN_NOTIFICATIONS =
   settingsSchema?.defaults?.showAuthorInNotifications ?? true;
 const DEFAULT_SHOW_LIKES_IN_NOTIFICATIONS = true;
+const DEFAULT_NOTIFICATION_ORDER_MODE =
+  String(settingsSchema?.defaults?.notificationOrderMode || "recency") === "recency"
+    ? "recency"
+    : "likes";
 const DEFAULT_SHOW_UPCOMING_DOT = settingsSchema?.defaults?.showUpcomingDot ?? true;
 const DEFAULT_STACK_OPACITY_FADE_ENABLED =
   settingsSchema?.defaults?.stackOpacityFadeEnabled ?? true;
@@ -39,6 +43,8 @@ const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES =
   settingsSchema?.defaults?.hideTimestampOnlyMessages ?? true;
 const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES =
   settingsSchema?.defaults?.hideMultiTimestampMessages ?? true;
+const DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS =
+  settingsSchema?.defaults?.allowChapterTimestampComments ?? true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED =
   settingsSchema?.defaults?.experimentalGameSkinAutoEnabled ?? false;
 const DEFAULT_COMMENT_FETCH_STARTUP_PAGES =
@@ -136,6 +142,7 @@ const RARE_COMMENTS_AMOUNT_PRESETS = Object.freeze([
   { key: "very-high", label: "Very High", ratio: 1.05, apexCount: 3 }
 ]);
 const PRESET_PROFILE_VALUES = ["minimal", "balanced"];
+const NOTIFICATION_ORDER_MODE_VALUES = ["likes", "recency"];
 const RARITY_SKIN_VALUES = ["default", "borderlands", "borderlands2", "minecraft", "animalcrossing"];
 const RARITY_LOGIC_MODE_VALUES = ["geometric"];
 const DEFAULT_OVERLAY_RADIUS_BY_SKIN = Object.freeze({
@@ -349,6 +356,12 @@ function mapStackFadeSettingsToIntensity(startValue, stepValue) {
 
 function normalizePresetProfile(value) {
   return PRESET_PROFILE_VALUES.includes(value) ? value : DEFAULT_PRESET_PROFILE;
+}
+
+function normalizeNotificationOrderMode(value) {
+  return NOTIFICATION_ORDER_MODE_VALUES.includes(String(value || ""))
+    ? String(value)
+    : DEFAULT_NOTIFICATION_ORDER_MODE;
 }
 
 function normalizeRaritySkin(value) {
@@ -575,12 +588,14 @@ async function getConfigs() {
       "heatmapIntensity",
       "showAuthorInNotifications",
       "showLikesInNotifications",
+      "notificationOrderMode",
       "showUpcomingDot",
       "stackOpacityFadeEnabled",
       "stackOpacityFadeStart",
       "stackOpacityFadeStepPercent",
       "hideTimestampOnlyMessages",
       "hideMultiTimestampMessages",
+      "allowChapterTimestampComments",
       "hiddenRarityTiersBySkin",
       "hiddenRarityTiersBySkinId",
       "showRarityLabelInNotifications",
@@ -748,6 +763,9 @@ async function getConfigs() {
           storedSync?.showRarityLabelInNotifications ??
             DEFAULT_SHOW_RARITY_LABEL_IN_NOTIFICATIONS
         );
+  const notificationOrderMode = normalizeNotificationOrderMode(
+    String(storedSync?.notificationOrderMode ?? DEFAULT_NOTIFICATION_ORDER_MODE)
+  );
   const showUpcomingDot = Boolean(
     storedSync?.showUpcomingDot ?? DEFAULT_SHOW_UPCOMING_DOT
   );
@@ -772,6 +790,9 @@ async function getConfigs() {
   );
   const hideMultiTimestampMessages = Boolean(
     storedSync?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
+  );
+  const allowChapterTimestampComments = Boolean(
+    storedSync?.allowChapterTimestampComments ?? DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS
   );
   const hiddenMapSource =
     storedSync?.[SYNC_HIDDEN_RARITY_TIERS_BY_SKIN_ID_KEY] ??
@@ -859,12 +880,14 @@ async function getConfigs() {
     heatmapIntensity,
     showAuthorInNotifications,
     showLikesInNotifications,
+    notificationOrderMode,
     showUpcomingDot,
     stackOpacityFadeEnabled,
     stackOpacityFadeStart,
     stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
+    allowChapterTimestampComments,
     hiddenRarityTiersBySkin,
     [SYNC_HIDDEN_RARITY_TIERS_BY_SKIN_ID_KEY]: hiddenRarityTiersBySkin,
     experimentalGameSkinAutoEnabled,
@@ -933,12 +956,14 @@ async function getConfigs() {
     heatmapIntensity,
     showAuthorInNotifications,
     showLikesInNotifications,
+    notificationOrderMode,
     showUpcomingDot,
     stackOpacityFadeEnabled,
     stackOpacityFadeStart,
     stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
+    allowChapterTimestampComments,
     hiddenRarityTiersBySkin,
     experimentalGameSkinAutoEnabled,
     commentFetchStartupPages,
@@ -1118,6 +1143,11 @@ function applySettingHoverDescriptions() {
       name: "Show likes in notifications",
       description: "Displays each comment's like count in the card."
     },
+    "notification-order-recency-toggle": {
+      name: "Popularity order",
+      description:
+        "On: higher-like comments stay closest to the corner. Off: newest on-screen comments stay closest."
+    },
     "show-rarity-label-toggle": {
       name: "Show rarity labels",
       description: "Appends the rarity title after likes inside each notification."
@@ -1209,12 +1239,14 @@ async function broadcastOverlaySettings({
   heatmapIntensity,
   showAuthorInNotifications,
   showLikesInNotifications,
+  notificationOrderMode,
   showUpcomingDot,
   stackOpacityFadeEnabled,
   stackOpacityFadeStart,
   stackOpacityFadeStepPercent,
   hideTimestampOnlyMessages,
   hideMultiTimestampMessages,
+  allowChapterTimestampComments,
   hiddenRarityTiersBySkin,
   experimentalGameSkinAutoEnabled,
   commentFetchStartupPages,
@@ -1258,12 +1290,14 @@ async function broadcastOverlaySettings({
     heatmapIntensity,
     showAuthorInNotifications,
     showLikesInNotifications,
+    notificationOrderMode,
     showUpcomingDot,
     stackOpacityFadeEnabled,
     stackOpacityFadeStart,
     stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
+    allowChapterTimestampComments,
     hiddenRarityTiersBySkin,
     hiddenRarityTiersBySkinId: hiddenRarityTiersBySkin,
     experimentalGameSkinAutoEnabled,
@@ -1310,6 +1344,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const allowLongToggle = document.getElementById("allow-long-toggle");
   const hideTimestampOnlyToggle = document.getElementById("hide-timestamp-only-toggle");
   const hideMultiTimestampToggle = document.getElementById("hide-multi-timestamp-toggle");
+  const allowChapterTimestampToggle = document.getElementById("allow-chapter-timestamp-toggle");
+  const showChapterCommentsToggle = document.getElementById("show-chapter-comments-toggle");
   const maxCharsInput = document.getElementById("max-chars-input");
   const followPlaybackSpeedToggle = document.getElementById("follow-playback-speed-toggle");
   const clickBackSecondsInput = document.getElementById("click-back-seconds-input");
@@ -1371,6 +1407,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const heatmapIntensityValue = document.getElementById("heatmap-intensity-value");
   const showAuthorToggle = document.getElementById("show-author-toggle");
   const showLikesToggle = document.getElementById("show-likes-toggle");
+  const notificationOrderRecencyToggle = document.getElementById(
+    "notification-order-recency-toggle"
+  );
   const showRarityLabelToggle = document.getElementById("show-rarity-label-toggle");
   const showUpcomingDotToggle = document.getElementById("show-upcoming-dot-toggle");
   const stackOpacityFadeToggle = document.getElementById("stack-opacity-fade-toggle");
@@ -1616,6 +1655,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   allowLongToggle.checked = configs.allowLongMessages;
   hideTimestampOnlyToggle.checked = configs.hideTimestampOnlyMessages;
   hideMultiTimestampToggle.checked = configs.hideMultiTimestampMessages;
+  if (showChapterCommentsToggle) {
+    showChapterCommentsToggle.checked = configs.allowChapterTimestampComments;
+  }
+  if (allowChapterTimestampToggle) {
+    allowChapterTimestampToggle.checked = configs.allowChapterTimestampComments;
+  }
   maxCharsInput.value = String(configs.maxMessageChars);
   maxCharsInput.disabled = configs.allowLongMessages;
   followPlaybackSpeedToggle.checked = configs.followPlaybackSpeed;
@@ -1647,6 +1692,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   heatmapIntensitySlider.value = String(configs.heatmapIntensity);
   showAuthorToggle.checked = configs.showAuthorInNotifications;
   showLikesToggle.checked = configs.showLikesInNotifications;
+  if (notificationOrderRecencyToggle) {
+    notificationOrderRecencyToggle.checked = configs.notificationOrderMode === "likes";
+  }
   showRarityLabelToggle.checked = configs.showRarityLabelInNotifications;
   showUpcomingDotToggle.checked = configs.showUpcomingDot;
   if (stackOpacityFadeToggle) {
@@ -2342,6 +2390,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     const allowLongMessages = Boolean(allowLongToggle.checked);
     const hideTimestampOnlyMessages = Boolean(hideTimestampOnlyToggle.checked);
     const hideMultiTimestampMessages = Boolean(hideMultiTimestampToggle.checked);
+    const allowChapterTimestampComments = Boolean(
+      showChapterCommentsToggle?.checked ??
+        allowChapterTimestampToggle?.checked ??
+        DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS
+    );
+    if (showChapterCommentsToggle) {
+      showChapterCommentsToggle.checked = allowChapterTimestampComments;
+    }
+    if (allowChapterTimestampToggle) {
+      allowChapterTimestampToggle.checked = allowChapterTimestampComments;
+    }
     const maxMessageChars = clamp(
       Number(maxCharsInput.value || DEFAULT_MAX_MESSAGE_CHARS),
       MIN_MAX_MESSAGE_CHARS,
@@ -2391,6 +2450,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       presetProfile === "minimal"
         ? false
         : Boolean(showLikesToggle.checked);
+    const notificationOrderMode = normalizeNotificationOrderMode(
+      notificationOrderRecencyToggle?.checked ? "likes" : "recency"
+    );
     const showRarityLabelInNotifications =
       presetProfile === "minimal"
         ? false
@@ -2456,6 +2518,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       stackOpacityFadeStepInput.disabled = !stackOpacityFadeEnabled;
     }
     showLikesToggle.checked = showLikesInNotifications;
+    if (notificationOrderRecencyToggle) {
+      notificationOrderRecencyToggle.checked = notificationOrderMode === "likes";
+    }
     showRarityLabelToggle.checked = showRarityLabelInNotifications;
     showRarityLabelToggle.disabled = presetProfile === "minimal";
     renderLiveNotificationPreview();
@@ -2493,7 +2558,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       allowLongMessages !== Boolean(configs.allowLongMessages) ||
       maxMessageChars !== Number(configs.maxMessageChars) ||
       hideTimestampOnlyMessages !== Boolean(configs.hideTimestampOnlyMessages) ||
-      hideMultiTimestampMessages !== Boolean(configs.hideMultiTimestampMessages);
+      hideMultiTimestampMessages !== Boolean(configs.hideMultiTimestampMessages) ||
+      allowChapterTimestampComments !==
+        Boolean(configs.allowChapterTimestampComments ?? DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS);
 
     const settings = {
       overlayScale,
@@ -2522,6 +2589,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       heatmapIntensity,
       showAuthorInNotifications,
       showLikesInNotifications,
+      notificationOrderMode,
       showRarityLabelInNotifications,
       showUpcomingDot,
       stackOpacityFadeEnabled,
@@ -2529,6 +2597,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       stackOpacityFadeStepPercent,
       hideTimestampOnlyMessages,
       hideMultiTimestampMessages,
+      allowChapterTimestampComments,
       hiddenRarityTiersBySkin: hiddenBySkinId,
       hiddenRarityTiersBySkinId: hiddenBySkinId,
       experimentalGameSkinAutoEnabled,
@@ -2683,6 +2752,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   allowLongToggle.addEventListener("change", saveOverlaySettings);
   hideTimestampOnlyToggle.addEventListener("change", saveOverlaySettings);
   hideMultiTimestampToggle.addEventListener("change", saveOverlaySettings);
+  if (showChapterCommentsToggle) {
+    showChapterCommentsToggle.addEventListener("change", saveOverlaySettings);
+  }
+  if (allowChapterTimestampToggle) {
+    allowChapterTimestampToggle.addEventListener("change", saveOverlaySettings);
+  }
   maxCharsInput.addEventListener("change", saveOverlaySettings);
   followPlaybackSpeedToggle.addEventListener("change", saveOverlaySettings);
   if (clickBackSecondsInput) {
@@ -2717,6 +2792,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   heatmapEnabledToggle.addEventListener("change", saveOverlaySettings);
   heatmapIntensitySlider.addEventListener("change", saveOverlaySettings);
   showAuthorToggle.addEventListener("change", saveOverlaySettings);
+  if (notificationOrderRecencyToggle) {
+    notificationOrderRecencyToggle.addEventListener("change", saveOverlaySettings);
+  }
   showUpcomingDotToggle.addEventListener("change", saveOverlaySettings);
   if (stackOpacityFadeIntensitySlider && stackOpacityFadeStartInput && stackOpacityFadeStepInput) {
     stackOpacityFadeIntensitySlider.addEventListener("input", () => {
@@ -2801,6 +2879,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindRealtime(reverseStackToggle, saveOverlaySettings);
   bindRealtime(showAuthorToggle, saveOverlaySettings);
   bindRealtime(showLikesToggle, saveOverlaySettings);
+  if (notificationOrderRecencyToggle) {
+    bindRealtime(notificationOrderRecencyToggle, saveOverlaySettings);
+  }
   bindRealtime(priorityScoringToggle, saveOverlaySettings);
   bindRealtime(showRarityLabelToggle, saveOverlaySettings);
   if (stackOpacityFadeToggle) {

@@ -15,6 +15,8 @@ const DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES =
   settingsSchema?.defaults?.hideTimestampOnlyMessages ?? true;
 const DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES =
   settingsSchema?.defaults?.hideMultiTimestampMessages ?? true;
+const DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS =
+  settingsSchema?.defaults?.allowChapterTimestampComments ?? true;
 const DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED =
   settingsSchema?.defaults?.experimentalGameSkinAutoEnabled ?? true;
 const DEFAULT_COMMENT_FETCH_STARTUP_PAGES =
@@ -54,6 +56,7 @@ let lastAllowLongMessages = DEFAULT_ALLOW_LONG_MESSAGES;
 let lastMaxMessageChars = DEFAULT_MAX_MESSAGE_CHARS;
 let lastHideTimestampOnlyMessages = DEFAULT_HIDE_TIMESTAMP_ONLY_MESSAGES;
 let lastHideMultiTimestampMessages = DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES;
+let lastAllowChapterTimestampComments = DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS;
 let lastExperimentalGameSkinAutoEnabled = DEFAULT_EXPERIMENTAL_GAME_SKIN_AUTO_ENABLED;
 let lastCommentFetchStartupPages = DEFAULT_COMMENT_FETCH_STARTUP_PAGES;
 let lastCommentFetchMaxPages = DEFAULT_COMMENT_FETCH_MAX_PAGES;
@@ -114,6 +117,7 @@ async function syncLegacyRuntimeCatalogFromThemeCatalogV2(themeCatalog, revision
       "maxMessageChars",
       "hideTimestampOnlyMessages",
       "hideMultiTimestampMessages",
+      "allowChapterTimestampComments",
       "experimentalGameSkinAutoEnabled",
       "commentFetchStartupPages",
       "commentFetchMaxPages",
@@ -135,6 +139,9 @@ async function syncLegacyRuntimeCatalogFromThemeCatalogV2(themeCatalog, revision
     );
     lastHideMultiTimestampMessages = Boolean(
       settings?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
+    );
+    lastAllowChapterTimestampComments = Boolean(
+      settings?.allowChapterTimestampComments ?? DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS
     );
     lastExperimentalGameSkinAutoEnabled = Boolean(
       settings?.experimentalGameSkinAutoEnabled ??
@@ -233,9 +240,13 @@ function applyCommentFilters(
   allowLongMessages,
   maxMessageChars,
   hideTimestampOnlyMessages,
-  hideMultiTimestampMessages
+  hideMultiTimestampMessages,
+  allowChapterTimestampComments
 ) {
   return (comments || []).filter((comment) => {
+    if (!allowChapterTimestampComments && Boolean(comment?.isChapterComment)) {
+      return false;
+    }
     if (!allowLongMessages && String(comment?.text || "").length > maxMessageChars) {
       return false;
     }
@@ -245,7 +256,8 @@ function applyCommentFilters(
     if (
       hideMultiTimestampMessages &&
       Array.isArray(comment?.timestamps) &&
-      comment.timestamps.length > 1
+      comment.timestamps.length > 1 &&
+      !(allowChapterTimestampComments && Boolean(comment?.isChapterComment))
     ) {
       return false;
     }
@@ -483,14 +495,16 @@ function commentsForSettings(
   allowLongMessages,
   maxMessageChars,
   hideTimestampOnlyMessages,
-  hideMultiTimestampMessages
+  hideMultiTimestampMessages,
+  allowChapterTimestampComments
 ) {
   const filtered = applyCommentFilters(
     comments,
     allowLongMessages,
     maxMessageChars,
     hideTimestampOnlyMessages,
-    hideMultiTimestampMessages
+    hideMultiTimestampMessages,
+    allowChapterTimestampComments
   );
   return reduceCommentsForRuntime(filtered);
 }
@@ -502,6 +516,7 @@ async function sendCommentsToVideoTabs(
   maxMessageChars,
   hideTimestampOnlyMessages,
   hideMultiTimestampMessages,
+  allowChapterTimestampComments,
   complete = true,
   progress = null
 ) {
@@ -511,7 +526,8 @@ async function sendCommentsToVideoTabs(
     allowLongMessages,
     maxMessageChars,
     hideTimestampOnlyMessages,
-    hideMultiTimestampMessages
+    hideMultiTimestampMessages,
+    allowChapterTimestampComments
   );
   for (const tab of tabs) {
     if (extractVideoIdFromUrl(tab.url) !== videoId) {
@@ -533,6 +549,7 @@ async function sendCommentsPageUpdateToVideoTabs(
   maxMessageChars,
   hideTimestampOnlyMessages,
   hideMultiTimestampMessages,
+  allowChapterTimestampComments,
   complete = false,
   progress = null
 ) {
@@ -542,7 +559,8 @@ async function sendCommentsPageUpdateToVideoTabs(
     allowLongMessages,
     maxMessageChars,
     hideTimestampOnlyMessages,
-    hideMultiTimestampMessages
+    hideMultiTimestampMessages,
+    allowChapterTimestampComments
   );
   if (filtered.length === 0 && !complete) {
     return;
@@ -607,7 +625,8 @@ function scheduleLazyCommentsFetch(videoId) {
               allowLongMessages,
               maxMessageChars,
               hideTimestampOnlyMessages,
-              hideMultiTimestampMessages
+              hideMultiTimestampMessages,
+              allowChapterTimestampComments
             } =
               await getFilterSettings();
             await sendCommentsPageUpdateToVideoTabs(
@@ -617,6 +636,7 @@ function scheduleLazyCommentsFetch(videoId) {
               maxMessageChars,
               hideTimestampOnlyMessages,
               hideMultiTimestampMessages,
+              allowChapterTimestampComments,
               false,
               {
                 pagesFetched: alreadyFetchedPages + Number(pageIndex || 0),
@@ -641,7 +661,8 @@ function scheduleLazyCommentsFetch(videoId) {
         allowLongMessages,
         maxMessageChars,
         hideTimestampOnlyMessages,
-        hideMultiTimestampMessages
+        hideMultiTimestampMessages,
+        allowChapterTimestampComments
       } = await getFilterSettings();
       await sendCommentsToVideoTabs(
         videoId,
@@ -650,6 +671,7 @@ function scheduleLazyCommentsFetch(videoId) {
         maxMessageChars,
         hideTimestampOnlyMessages,
         hideMultiTimestampMessages,
+        allowChapterTimestampComments,
         true,
         {
           pagesFetched: Number(updatedEntry?.pagesFetched || actualTotalPagesFetched) || null,
@@ -663,7 +685,8 @@ function scheduleLazyCommentsFetch(videoId) {
             allowLongMessages,
             maxMessageChars,
             hideTimestampOnlyMessages,
-            hideMultiTimestampMessages
+            hideMultiTimestampMessages,
+            allowChapterTimestampComments
           ).length
         }
       );
@@ -678,7 +701,8 @@ function scheduleLazyCommentsFetch(videoId) {
           allowLongMessages,
           maxMessageChars,
           hideTimestampOnlyMessages,
-          hideMultiTimestampMessages
+          hideMultiTimestampMessages,
+          allowChapterTimestampComments
         } = await getFilterSettings();
         const fallbackComments = Array.isArray(fallbackEntry?.comments)
           ? fallbackEntry.comments
@@ -690,6 +714,7 @@ function scheduleLazyCommentsFetch(videoId) {
           maxMessageChars,
           hideTimestampOnlyMessages,
           hideMultiTimestampMessages,
+          allowChapterTimestampComments,
           true,
           {
             pagesFetched: Number(fallbackEntry?.pagesFetched || 0) || null,
@@ -699,7 +724,8 @@ function scheduleLazyCommentsFetch(videoId) {
               allowLongMessages,
               maxMessageChars,
               hideTimestampOnlyMessages,
-              hideMultiTimestampMessages
+              hideMultiTimestampMessages,
+              allowChapterTimestampComments
             ).length
           }
         );
@@ -721,7 +747,8 @@ async function getFilterSettings() {
     "allowLongMessages",
     "maxMessageChars",
     "hideTimestampOnlyMessages",
-    "hideMultiTimestampMessages"
+    "hideMultiTimestampMessages",
+    "allowChapterTimestampComments"
   ]);
   return {
     allowLongMessages:
@@ -738,6 +765,9 @@ async function getFilterSettings() {
     ),
     hideMultiTimestampMessages: Boolean(
       settings?.hideMultiTimestampMessages ?? DEFAULT_HIDE_MULTI_TIMESTAMP_MESSAGES
+    ),
+    allowChapterTimestampComments: Boolean(
+      settings?.allowChapterTimestampComments ?? DEFAULT_ALLOW_CHAPTER_TIMESTAMP_COMMENTS
     )
   };
 }
@@ -851,12 +881,14 @@ async function sendOverlaySettings(
   routingLongCorner,
   showAuthorInNotifications,
   showLikesInNotifications,
+  notificationOrderMode,
   showUpcomingDot,
   stackOpacityFadeEnabled,
   stackOpacityFadeStart,
   stackOpacityFadeStepPercent,
   hideTimestampOnlyMessages,
   hideMultiTimestampMessages,
+  allowChapterTimestampComments,
   hiddenRarityTiersBySkin,
   commentScanStartDelaySec,
   experimentalGameSkinAutoEnabled,
@@ -901,12 +933,14 @@ async function sendOverlaySettings(
     routingLongCorner,
     showAuthorInNotifications,
     showLikesInNotifications,
+    notificationOrderMode,
     showUpcomingDot,
     stackOpacityFadeEnabled,
     stackOpacityFadeStart,
     stackOpacityFadeStepPercent,
     hideTimestampOnlyMessages,
     hideMultiTimestampMessages,
+    allowChapterTimestampComments,
     hiddenRarityTiersBySkin,
     hiddenRarityTiersBySkinId,
     commentScanStartDelaySec,
@@ -930,7 +964,8 @@ async function sendRefilteredCommentsToTabs(
   allowLongMessages,
   maxMessageChars,
   hideTimestampOnlyMessages,
-  hideMultiTimestampMessages
+  hideMultiTimestampMessages,
+  allowChapterTimestampComments
 ) {
   const tabs = await youtubeWatchTabs();
 
@@ -947,7 +982,8 @@ async function sendRefilteredCommentsToTabs(
         allowLongMessages,
         maxMessageChars,
         hideTimestampOnlyMessages,
-        hideMultiTimestampMessages
+        hideMultiTimestampMessages,
+        allowChapterTimestampComments
       );
       await sendMessage(tab.id, {
         type: "comments_replace",
@@ -974,7 +1010,8 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
     allowLongMessages,
     maxMessageChars,
     hideTimestampOnlyMessages,
-    hideMultiTimestampMessages
+    hideMultiTimestampMessages,
+    allowChapterTimestampComments
   } = await getFilterSettings();
   const fetchConfig = getCommentFetchConfig();
   if (!videoId || !tabId) {
@@ -1001,7 +1038,8 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
       allowLongMessages,
       maxMessageChars,
       hideTimestampOnlyMessages,
-      hideMultiTimestampMessages
+      hideMultiTimestampMessages,
+      allowChapterTimestampComments
     );
     if (await isTabStillOnVideo(tabId, videoId)) {
       await sendMessageWithRetry(tabId, {
@@ -1042,6 +1080,7 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
             maxMessageChars,
             hideTimestampOnlyMessages,
             hideMultiTimestampMessages,
+            allowChapterTimestampComments,
             false,
             {
               pagesFetched: pageIndex,
@@ -1063,7 +1102,8 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
         allowLongMessages,
         maxMessageChars,
         hideTimestampOnlyMessages,
-        hideMultiTimestampMessages
+        hideMultiTimestampMessages,
+        allowChapterTimestampComments
       );
     if (await isTabStillOnVideo(tabId, videoId)) {
       await sendMessageWithRetry(tabId, {
@@ -1098,7 +1138,8 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
         allowLongMessages,
         maxMessageChars,
         hideTimestampOnlyMessages,
-        hideMultiTimestampMessages
+        hideMultiTimestampMessages,
+        allowChapterTimestampComments
       );
       if (await isTabStillOnVideo(tabId, videoId)) {
         await sendMessageWithRetry(tabId, {
@@ -1449,12 +1490,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const hideMultiTimestampMessages = Boolean(
       message.hideMultiTimestampMessages ?? lastHideMultiTimestampMessages
     );
+    const allowChapterTimestampComments = Boolean(
+      message.allowChapterTimestampComments ?? lastAllowChapterTimestampComments
+    );
 
     const inferredFilterSettingsChanged =
       allowLongMessages !== lastAllowLongMessages ||
       maxMessageChars !== lastMaxMessageChars ||
       hideTimestampOnlyMessages !== lastHideTimestampOnlyMessages ||
-      hideMultiTimestampMessages !== lastHideMultiTimestampMessages;
+      hideMultiTimestampMessages !== lastHideMultiTimestampMessages ||
+      allowChapterTimestampComments !== lastAllowChapterTimestampComments;
     const filterSettingsChanged =
       typeof message.filterSettingsChanged === "boolean"
         ? Boolean(message.filterSettingsChanged)
@@ -1487,6 +1532,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     lastMaxMessageChars = maxMessageChars;
     lastHideTimestampOnlyMessages = hideTimestampOnlyMessages;
     lastHideMultiTimestampMessages = hideMultiTimestampMessages;
+    lastAllowChapterTimestampComments = allowChapterTimestampComments;
 
     sendOverlaySettings(
       message.overlayScale,
@@ -1516,12 +1562,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.routingLongCorner,
       message.showAuthorInNotifications,
       message.showLikesInNotifications,
+      message.notificationOrderMode,
       message.showUpcomingDot,
       message.stackOpacityFadeEnabled,
       message.stackOpacityFadeStart,
       message.stackOpacityFadeStepPercent,
       hideTimestampOnlyMessages,
       hideMultiTimestampMessages,
+      allowChapterTimestampComments,
       message.hiddenRarityTiersBySkin,
       message.commentScanStartDelaySec,
       lastExperimentalGameSkinAutoEnabled,
@@ -1542,7 +1590,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         allowLongMessages,
         maxMessageChars,
         hideTimestampOnlyMessages,
-        hideMultiTimestampMessages
+        hideMultiTimestampMessages,
+        allowChapterTimestampComments
       );
     }
     return true;

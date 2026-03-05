@@ -27,6 +27,7 @@
     heatmapIntensity: 500,
     showAuthorInNotifications: true,
     showLikesInNotifications: true,
+    notificationOrderMode: "recency",
     showUpcomingDot: true,
     stackOpacityFadeEnabled: true,
     stackOpacityFadeStart: 6,
@@ -34,6 +35,7 @@
     showRarityLabelInNotifications: true,
     hideTimestampOnlyMessages: true,
     hideMultiTimestampMessages: true,
+    allowChapterTimestampComments: true,
     experimentalGameSkinAutoEnabled: false,
     commentFetchStartupPages: 1,
     commentFetchMaxPages: 8,
@@ -82,6 +84,9 @@
       ),
       hideMultiTimestampMessages: Boolean(
         raw.hideMultiTimestampMessages ?? defaults.hideMultiTimestampMessages
+      ),
+      allowChapterTimestampComments: Boolean(
+        raw.allowChapterTimestampComments ?? defaults.allowChapterTimestampComments
       )
     };
   }

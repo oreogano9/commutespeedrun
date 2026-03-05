@@ -1,6 +1,7 @@
 const INNERTUBE_CLIENT_VERSION = "2.20211129.09.00";
 const timestampRegex = /(\d{1,}):([0-5]\d)(?::([0-5]\d))?/;
 const timestampGlobalRegex = /(\d{1,}):([0-5]\d)(?::([0-5]\d))?/g;
+const chapterHeadingRegex = /\b(timestamps?|chapters?)\b/i;
 
 export async function fetchCommentsPage(videoId, continuationToken = null) {
   let token = continuationToken;
@@ -39,20 +40,33 @@ export async function fetchCommentsPage(videoId, continuationToken = null) {
         if (timestamps.length === 0) {
           continue;
         }
+        const chapterEntries = extractChapterEntries(text);
+        const isChapterComment = isChapterCommentBalanced(text, chapterEntries);
+        const chapterLabelByTime = isChapterComment
+          ? buildChapterLabelByTimeMap(chapterEntries)
+          : null;
+        const emissionTimestamps = isChapterComment
+          ? [...chapterLabelByTime.keys()].sort((a, b) => a - b)
+          : timestamps;
         const sourceId = renderer.commentId;
         const baseComment = {
           sourceId,
           name: renderer.authorText.simpleText,
           avatar: renderer.authorThumbnail.thumbnails[0].url,
           text,
+          rawText: text,
           likes: parseLikeCount(renderer.voteCount?.simpleText),
-          timestamps
+          timestamps: emissionTimestamps,
+          isChapterComment
         };
-        timestamps.forEach((time) => {
+        emissionTimestamps.forEach((time) => {
+          const chapterLabel = chapterLabelByTime?.get?.(time) || null;
           parsedComments.push({
             ...baseComment,
             id: `${sourceId}::${time}`,
-            time
+            time,
+            chapterLabel,
+            text: chapterLabel || text
           });
         });
       } else if (thread.commentViewModel) {
@@ -71,6 +85,14 @@ export async function fetchCommentsPage(videoId, continuationToken = null) {
         if (timestamps.length === 0) {
           continue;
         }
+        const chapterEntries = extractChapterEntries(text);
+        const isChapterComment = isChapterCommentBalanced(text, chapterEntries);
+        const chapterLabelByTime = isChapterComment
+          ? buildChapterLabelByTimeMap(chapterEntries)
+          : null;
+        const emissionTimestamps = isChapterComment
+          ? [...chapterLabelByTime.keys()].sort((a, b) => a - b)
+          : timestamps;
         const sourceId = payload.properties.commentId;
         const baseComment = {
           sourceId,
@@ -78,13 +100,18 @@ export async function fetchCommentsPage(videoId, continuationToken = null) {
           avatar: payload.author.avatarThumbnailUrl,
           likes: parseLikeCount(payload.toolbar.likeCountLiked),
           text,
-          timestamps
+          rawText: text,
+          timestamps: emissionTimestamps,
+          isChapterComment
         };
-        timestamps.forEach((time) => {
+        emissionTimestamps.forEach((time) => {
+          const chapterLabel = chapterLabelByTime?.get?.(time) || null;
           parsedComments.push({
             ...baseComment,
             id: `${sourceId}::${time}`,
-            time
+            time,
+            chapterLabel,
+            text: chapterLabel || text
           });
         });
       }
@@ -187,6 +214,93 @@ function extractAllTimestamps(text) {
     }
   }
   return [...unique].sort((a, b) => a - b);
+}
+
+function splitCommentIntoLines(text) {
+  return String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function parseTimestampToSeconds(rawTimestamp) {
+  const parts = String(rawTimestamp || "").split(":").map((part) => Number(part));
+  if (!parts.length || parts.some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+  const [h, m, s] =
+    parts.length === 3 ? parts : parts.length === 2 ? [0, parts[0], parts[1]] : [0, 0, parts[0]];
+  if (m < 0 || m > 59 || s < 0 || s > 59 || h < 0) {
+    return null;
+  }
+  return h * 3600 + m * 60 + s;
+}
+
+function parseChapterLine(line) {
+  const normalized = String(line || "")
+    .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
+    .trim();
+  if (!normalized) {
+    return null;
+  }
+  const match = normalized.match(/(\d{1,}:[0-5]\d(?::[0-5]\d)?)\s*[-–—:|]\s*(.+)$/);
+  if (!match) {
+    return null;
+  }
+  const seconds = parseTimestampToSeconds(match[1]);
+  if (!Number.isFinite(seconds)) {
+    return null;
+  }
+  const label = String(match[2] || "")
+    .replace(/^[\s\-–—:|]+/, "")
+    .replace(/[\s\-–—:|]+$/, "")
+    .trim();
+  if (!label) {
+    return null;
+  }
+  return { seconds, label };
+}
+
+function extractChapterEntries(text) {
+  const lines = splitCommentIntoLines(text);
+  const entries = [];
+  for (const line of lines) {
+    const parsed = parseChapterLine(line);
+    if (parsed) {
+      entries.push(parsed);
+    }
+  }
+  return entries;
+}
+
+function isChapterCommentBalanced(text, entries) {
+  const parsedEntries = Array.isArray(entries) ? entries : [];
+  if (parsedEntries.length < 3) {
+    return false;
+  }
+  const distinctTimestamps = new Set(parsedEntries.map((entry) => Number(entry?.seconds)));
+  if (distinctTimestamps.size < 3) {
+    return false;
+  }
+  const hasHeadingCue = chapterHeadingRegex.test(String(text || ""));
+  // Balanced mode: heading cue is optional, but if absent we still require >=3 structured lines.
+  return hasHeadingCue || parsedEntries.length >= 3;
+}
+
+function buildChapterLabelByTimeMap(entries) {
+  const mapping = new Map();
+  for (const entry of entries || []) {
+    const seconds = Number(entry?.seconds);
+    const label = String(entry?.label || "").trim();
+    if (!Number.isFinite(seconds) || !label) {
+      continue;
+    }
+    if (!mapping.has(seconds)) {
+      mapping.set(seconds, label);
+    }
+  }
+  return mapping;
 }
 
 function parseLikeCount(value) {

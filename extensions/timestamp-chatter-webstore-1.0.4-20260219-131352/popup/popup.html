@@ -932,6 +932,13 @@
                 </label>
               </div>
               <div class="setting-toggle-row">
+                <label for="notification-order-recency-toggle">Popularity order</label>
+                <label class="mini-switch" for="notification-order-recency-toggle">
+                  <input id="notification-order-recency-toggle" type="checkbox" />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-toggle-row">
                 <label for="show-author-toggle">Show username in notifications</label>
                 <label class="mini-switch" for="show-author-toggle">
                   <input id="show-author-toggle" type="checkbox" />
@@ -944,6 +951,18 @@
                   <input id="show-rarity-label-toggle" type="checkbox" />
                   <span class="mini-switch-slider"></span>
                 </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="show-chapter-comments-toggle">Show chapter comments</label>
+                <label class="mini-switch" for="show-chapter-comments-toggle">
+                  <input id="show-chapter-comments-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+              </div>
+              <div class="setting-row setting-row-full">
+                <small class="setting-hint">
+                  Comment draft shortcut: Cmd+Shift+A (macOS) / Ctrl+Shift+A (Windows/Linux). Press again to hide.
+                </small>
               </div>
             </div>
           </section>
@@ -1258,6 +1277,14 @@
                   <input id="hide-multi-timestamp-toggle" type="checkbox" checked />
                   <span class="mini-switch-slider"></span>
                 </label>
+              </div>
+              <div class="setting-toggle-row">
+                <label for="allow-chapter-timestamp-toggle">Allow chapter-style timestamp comments</label>
+                <label class="mini-switch" for="allow-chapter-timestamp-toggle">
+                  <input id="allow-chapter-timestamp-toggle" type="checkbox" checked />
+                  <span class="mini-switch-slider"></span>
+                </label>
+                <small class="setting-hint">Keeps structured chapter lists and shows per-timestamp chapter labels.</small>
               </div>
             </div>
 
