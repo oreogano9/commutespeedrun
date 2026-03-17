@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --bg: #f6f4ef;
+  --bg-2: #efe9de;
+  --ink: #1c1a17;
+  --muted: #6b665d;
+  --card: #ffffff;
+  --accent: #ff5b2e;
+  --accent-2: #2a6ef5;
+  --accent-3: #0da678;
+  --ring: rgba(30, 27, 23, 0.08);
+  --shadow: 0 20px 60px rgba(17, 16, 15, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 800px at 10% -10%, #ffffff 0%, transparent 60%),
+    radial-gradient(900px 700px at 90% 10%, #ffe5db 0%, transparent 60%),
+    linear-gradient(135deg, var(--bg) 0%, var(--bg-2) 100%);
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.card {
+  background: var(--card);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--ring);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(18px);
+}
