@@ -45,12 +45,30 @@ const MIN_COMMENT_FETCH_MAX_PAGES =
 const MAX_COMMENT_FETCH_MAX_PAGES =
   settingsSchema?.limits?.commentFetchMaxPages?.max ?? 200;
 const COMMENT_FETCH_HARD_MAX_PAGES = 300;
-const COMMENT_FETCH_PAGE_TIMEOUT_MS = 12000;
+const COMMENT_FETCH_PAGE_TIMEOUT_MS = 20000;
 const COMMENT_FETCH_LAZY_DELAY_MS = 7000;
 const CACHE_KEEPALIVE_REFRESH_INTERVAL_MS = 60 * 1000;
+const COMMENT_FETCH_SESSION_RULE_ID = 11001;
+const COMMENT_FETCH_NO_TAB_ID = chrome?.tabs?.TAB_ID_NONE ?? -1;
+const WATCH_INJECTION_DELAY_MS = 1200;
+const CONTENT_LOADED_MARKER_ATTR = "data-timestamp-chatter-content-loaded";
+const WATCH_INJECTION_SCRIPT_FILES = [
+  "shared/rarity-skins.js",
+  "shared/settings-schema.js",
+  "shared/theme-catalog-v2.js",
+  "ui-dist/content-overlay/content-overlay.js",
+  "content/content.js"
+];
+const WATCH_INJECTION_CSS_FILES = [
+  "content/content.css"
+];
 
 const commentsCache = new Map();
 const lazyFetchPromises = new Map();
+const incrementalFetchPromises = new Map();
+let ensureCommentFetchSessionRulePromise = null;
+let commentFetchSessionRuleReady = false;
+const pendingWatchInjectionTimers = new Map();
 let skinEditorWindowId = null;
 let lastAllowLongMessages = DEFAULT_ALLOW_LONG_MESSAGES;
 let lastMaxMessageChars = DEFAULT_MAX_MESSAGE_CHARS;
@@ -74,11 +92,126 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+async function isMainWatchContentInjected(tabId) {
+  if (!tabId || !chrome?.scripting?.executeScript) {
+    return false;
+  }
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (markerAttr) =>
+        Boolean(
+          document.documentElement?.hasAttribute(markerAttr) ||
+            document.getElementById("overlay-element")
+        ),
+      args: [CONTENT_LOADED_MARKER_ATTR]
+    });
+    return Boolean(results?.[0]?.result);
+  } catch (error) {
+    return false;
+  }
+}
+
+async function ensureWatchPageContentInjected(tabId) {
+  if (!tabId || !chrome?.scripting?.executeScript || !chrome?.scripting?.insertCSS) {
+    return false;
+  }
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    const targetUrl = tab?.url || tab?.pendingUrl || "";
+    if (!extractVideoIdFromUrl(targetUrl)) {
+      return false;
+    }
+    if (await isMainWatchContentInjected(tabId)) {
+      return true;
+    }
+    await chrome.scripting.insertCSS({
+      target: { tabId },
+      files: WATCH_INJECTION_CSS_FILES
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: WATCH_INJECTION_SCRIPT_FILES
+    });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+function scheduleEnsureWatchPageContentInjected(tabId, delayMs = WATCH_INJECTION_DELAY_MS) {
+  if (!tabId) {
+    return;
+  }
+  const existingTimer = pendingWatchInjectionTimers.get(tabId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  const timerId = setTimeout(async () => {
+    pendingWatchInjectionTimers.delete(tabId);
+    await ensureWatchPageContentInjected(tabId);
+  }, Math.max(0, Number(delayMs) || 0));
+  pendingWatchInjectionTimers.set(tabId, timerId);
+}
+
+async function ensureCommentFetchSessionRule() {
+  if (!chrome?.declarativeNetRequest?.updateSessionRules) {
+    return;
+  }
+  if (commentFetchSessionRuleReady) {
+    return;
+  }
+  if (ensureCommentFetchSessionRulePromise) {
+    return ensureCommentFetchSessionRulePromise;
+  }
+
+  ensureCommentFetchSessionRulePromise = chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [COMMENT_FETCH_SESSION_RULE_ID],
+    addRules: [
+      {
+        id: COMMENT_FETCH_SESSION_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [
+            {
+              header: "origin",
+              operation: "remove"
+            }
+          ]
+        },
+        condition: {
+          requestDomains: ["www.youtube.com"],
+          urlFilter: "/youtubei/v1/next",
+          requestMethods: ["post"],
+          tabIds: [COMMENT_FETCH_NO_TAB_ID]
+        }
+      }
+    ]
+  })
+    .then(() => {
+      commentFetchSessionRuleReady = true;
+    })
+    .catch(() => {
+      commentFetchSessionRuleReady = false;
+    })
+    .finally(() => {
+      ensureCommentFetchSessionRulePromise = null;
+    });
+
+  return ensureCommentFetchSessionRulePromise;
+}
+
 async function syncLegacyRuntimeCatalogFromThemeCatalogV2(themeCatalog, revision, activeThemeId, options = {}) {
   if (!themeCatalogV2Shared || !chrome?.storage?.local) {
     return null;
   }
   const runtimeCatalog = themeCatalogV2Shared.buildRuntimeRarityCatalogFromThemeCatalog(themeCatalog);
+  const runtimeSkinIds = new Set(
+    (runtimeCatalog?.skins || [])
+      .map((skin) => String(skin?.id || ""))
+      .filter(Boolean)
+  );
   const localWrite = {
     [LOCAL_RARITY_CATALOG_KEY]: runtimeCatalog,
     [LOCAL_RARITY_CATALOG_REVISION_KEY]: Number(revision || Date.now())
@@ -97,20 +230,52 @@ async function syncLegacyRuntimeCatalogFromThemeCatalogV2(themeCatalog, revision
 
   await chrome.storage.local.set(localWrite);
 
-  const nextActiveSkinId = String(activeThemeId || runtimeCatalog?.skins?.[0]?.id || "default");
+  const fallbackActiveSkinId = String(runtimeCatalog?.skins?.[0]?.id || activeThemeId || "default");
+  const requestedActiveSkinId = String(activeThemeId || fallbackActiveSkinId);
+  let nextActiveSkinId = fallbackActiveSkinId;
+  let shouldWriteActiveSkin = Boolean(options.syncActiveSkin);
   try {
-    await chrome.storage.sync.set({
-      raritySkin: nextActiveSkinId,
-      activeRaritySkinId: nextActiveSkinId
-    });
+    const existingSync = await chrome.storage.sync.get(["raritySkin", "activeRaritySkinId"]);
+    const existingActiveSkinId = String(
+      existingSync?.activeRaritySkinId || existingSync?.raritySkin || ""
+    );
+
+    if (shouldWriteActiveSkin) {
+      nextActiveSkinId = runtimeSkinIds.has(requestedActiveSkinId)
+        ? requestedActiveSkinId
+        : runtimeSkinIds.has(existingActiveSkinId)
+          ? existingActiveSkinId
+          : fallbackActiveSkinId;
+    } else if (runtimeSkinIds.has(existingActiveSkinId)) {
+      nextActiveSkinId = existingActiveSkinId;
+    } else {
+      nextActiveSkinId = runtimeSkinIds.has(requestedActiveSkinId)
+        ? requestedActiveSkinId
+        : fallbackActiveSkinId;
+      shouldWriteActiveSkin = true;
+    }
+
+    if (shouldWriteActiveSkin) {
+      await chrome.storage.sync.set({
+        raritySkin: nextActiveSkinId,
+        activeRaritySkinId: nextActiveSkinId
+      });
+    }
   } catch (error) {
-    // Ignore sync failures; local runtime catalog is still updated.
+    nextActiveSkinId = runtimeSkinIds.has(requestedActiveSkinId)
+      ? requestedActiveSkinId
+      : fallbackActiveSkinId;
   }
 
   return { runtimeCatalog, activeSkinId: nextActiveSkinId };
 }
 
 (async () => {
+  try {
+    await ensureCommentFetchSessionRule();
+  } catch (error) {
+    commentFetchSessionRuleReady = false;
+  }
   try {
     const settings = await chrome.storage.sync.get([
       "allowLongMessages",
@@ -175,12 +340,28 @@ async function syncLegacyRuntimeCatalogFromThemeCatalogV2(themeCatalog, revision
             seeded.catalog,
             seeded.revision,
             seeded.catalog?.themes?.[0]?.id || "default",
-            { backupLegacy: true }
+            {
+              backupLegacy: true,
+              syncActiveSkin: false
+            }
           );
         }
       } catch (error) {
         // Ignore theme migration failures during worker boot.
       }
+    }
+    try {
+      const openTabs = await chrome.tabs.query({});
+      for (const tab of openTabs) {
+        if (!tab?.id) {
+          continue;
+        }
+        if (extractVideoIdFromUrl(tab?.url) || extractVideoIdFromUrl(tab?.pendingUrl)) {
+          scheduleEnsureWatchPageContentInjected(tab.id, WATCH_INJECTION_DELAY_MS);
+        }
+      }
+    } catch (error) {
+      // Ignore boot-time injection sweeps.
     }
   } catch (error) {
     // Ignore background boot settings read failures (e.g. transient sync backend/service worker issues).
@@ -356,6 +537,48 @@ function updateCacheEntry(videoId, comments, nextToken = null, completeOverride 
   });
 }
 
+async function sendCachedCommentsToTab(videoId, tabId, options = {}) {
+  const cacheEntry = commentsCache.get(videoId);
+  if (!cacheEntry) {
+    return false;
+  }
+  const {
+    allowLongMessages,
+    maxMessageChars,
+    hideTimestampOnlyMessages,
+    hideMultiTimestampMessages,
+    allowChapterTimestampComments
+  } = await getFilterSettings();
+  const reducedFromCache = commentsForSettings(
+    cacheEntry.comments,
+    allowLongMessages,
+    maxMessageChars,
+    hideTimestampOnlyMessages,
+    hideMultiTimestampMessages,
+    allowChapterTimestampComments
+  );
+  if (!(await isTabStillOnVideo(tabId, videoId))) {
+    return false;
+  }
+  await sendMessageWithRetry(tabId, {
+    type: "comments_replace",
+    comments: reducedFromCache,
+    complete:
+      options.completeOverride === undefined
+        ? Boolean(cacheEntry?.complete)
+        : Boolean(options.completeOverride),
+    progress: {
+      pagesFetched: Number(cacheEntry?.pagesFetched || 0) || null,
+      pagesTarget:
+        options.completeOverride === true || cacheEntry?.complete
+          ? Number(cacheEntry?.pagesFetched || 0) || null
+          : null,
+      timestampsCount: reducedFromCache.length
+    }
+  });
+  return true;
+}
+
 function getCommentFetchConfig() {
   const startupPages = clamp(
     Number(lastCommentFetchStartupPages ?? DEFAULT_COMMENT_FETCH_STARTUP_PAGES),
@@ -411,6 +634,9 @@ async function fetchCommentsPages(
   let pagesFetched = 0;
   let allRawComments = Array.isArray(seedComments) ? [...seedComments] : [];
   const knownIds = new Set(allRawComments.map((comment) => comment?.id));
+  let timedOut = false;
+
+  await ensureCommentFetchSessionRule();
 
   while (pagesFetched < pageLimit) {
     let pageResult;
@@ -423,8 +649,7 @@ async function fetchCommentsPages(
       ]);
     } catch (error) {
       if (error?.message === "comment_page_timeout") {
-        // Failsafe: stop the scan cleanly if a page stalls too long.
-        continuationToken = null;
+        timedOut = true;
       }
       break;
     }
@@ -463,7 +688,8 @@ async function fetchCommentsPages(
   return {
     comments: allRawComments,
     nextToken: continuationToken,
-    pagesFetched
+    pagesFetched,
+    timedOut
   };
 }
 
@@ -482,7 +708,12 @@ async function fetchAllComments(videoId) {
     ? COMMENT_FETCH_HARD_MAX_PAGES
     : fetchConfig.maxPages;
   const result = await fetchCommentsPages(videoId, null, directLimit, []);
-  updateCacheEntry(videoId, result.comments, result.nextToken);
+  updateCacheEntry(
+    videoId,
+    result.comments,
+    result.nextToken,
+    !result.nextToken && !result.timedOut
+  );
   const entry = commentsCache.get(videoId);
   if (entry) {
     entry.pagesFetched = Number(result.pagesFetched || 0) || 0;
@@ -650,7 +881,7 @@ function scheduleLazyCommentsFetch(videoId) {
       const actualTotalPagesFetched = alreadyFetchedPages + Number(result.pagesFetched || 0);
       const reachedTargetLimit =
         !fetchConfig.aggressive && actualTotalPagesFetched >= desiredMaxPages;
-      const shouldMarkComplete = !result.nextToken || reachedTargetLimit;
+      const shouldMarkComplete = (!result.nextToken || reachedTargetLimit) && !result.timedOut;
       updateCacheEntry(videoId, result.comments, result.nextToken, shouldMarkComplete);
       const updatedEntry = commentsCache.get(videoId);
       if (updatedEntry) {
@@ -736,6 +967,10 @@ function scheduleLazyCommentsFetch(videoId) {
   })()
     .finally(() => {
       lazyFetchPromises.delete(videoId);
+      const cacheEntry = commentsCache.get(videoId);
+      if (cacheEntry?.nextToken && !cacheEntry.complete) {
+        scheduleLazyCommentsFetch(videoId);
+      }
     });
 
   lazyFetchPromises.set(videoId, lazyPromise);
@@ -803,10 +1038,25 @@ async function isTabStillOnVideo(tabId, videoId) {
   }
   try {
     const tab = await chrome.tabs.get(tabId);
-    return extractVideoIdFromUrl(tab?.url) === videoId;
+    return (
+      extractVideoIdFromUrl(tab?.url) === videoId ||
+      extractVideoIdFromUrl(tab?.pendingUrl) === videoId
+    );
   } catch (error) {
     return false;
   }
+}
+
+async function waitForTabVideoMatch(tabId, videoId, attempts = 8, delayMs = 250) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (await isTabStillOnVideo(tabId, videoId)) {
+      return true;
+    }
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(delayMs) || 0)));
+    }
+  }
+  return false;
 }
 
 async function requestMessage(tabId, payload) {
@@ -819,14 +1069,16 @@ async function requestMessage(tabId, payload) {
 
 async function youtubeWatchTabs() {
   const tabs = await chrome.tabs.query({});
-  return tabs.filter((tab) => tab.url && tab.url.startsWith("https://www.youtube.com/watch?v="));
+  return tabs.filter((tab) =>
+    Boolean(extractVideoIdFromUrl(tab?.url) || extractVideoIdFromUrl(tab?.pendingUrl))
+  );
 }
 
 async function getPreferredYouTubeWatchTab() {
   try {
     const activeTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     const active = activeTabs?.[0];
-    if (active?.url && active.url.startsWith("https://www.youtube.com/watch?v=")) {
+    if (extractVideoIdFromUrl(active?.url) || extractVideoIdFromUrl(active?.pendingUrl)) {
       return active;
     }
   } catch (error) {
@@ -1006,135 +1258,103 @@ async function sendRefilteredCommentsToTabs(
 }
 
 async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
-  const {
-    allowLongMessages,
-    maxMessageChars,
-    hideTimestampOnlyMessages,
-    hideMultiTimestampMessages,
-    allowChapterTimestampComments
-  } = await getFilterSettings();
-  const fetchConfig = getCommentFetchConfig();
   if (!videoId || !tabId) {
     return;
   }
-  if (!(await isTabStillOnVideo(tabId, videoId))) {
-    await sendMessageWithRetry(tabId, {
-      type: "comments_replace",
-      comments: [],
-      complete: true,
-      progress: null
-    });
-    return;
-  }
-  applyExperimentalGameSkin(tabId, videoId);
 
-  if (forceRefresh) {
-    commentsCache.delete(videoId);
+  const existingFetch = incrementalFetchPromises.get(videoId);
+  if (existingFetch) {
+    try {
+      await existingFetch;
+      await sendCachedCommentsToTab(videoId, tabId);
+    } catch (_error) {
+      // Let the original requester handle error/fallback reporting.
+    }
+    return existingFetch;
   }
-  const cacheEntry = commentsCache.get(videoId);
-  if (!forceRefresh && isCacheFresh(cacheEntry)) {
-    const reducedFromCache = commentsForSettings(
-      cacheEntry.comments,
+
+  const requestPromise = (async () => {
+    const {
       allowLongMessages,
       maxMessageChars,
       hideTimestampOnlyMessages,
       hideMultiTimestampMessages,
       allowChapterTimestampComments
-    );
-    if (await isTabStillOnVideo(tabId, videoId)) {
+    } = await getFilterSettings();
+    const fetchConfig = getCommentFetchConfig();
+    if (!(await waitForTabVideoMatch(tabId, videoId))) {
       await sendMessageWithRetry(tabId, {
         type: "comments_replace",
-        comments: reducedFromCache,
-        complete: Boolean(cacheEntry?.complete),
-        progress: {
-          pagesFetched: Number(cacheEntry?.pagesFetched || 0) || null,
-          pagesTarget: cacheEntry?.complete ? Number(cacheEntry?.pagesFetched || 0) || null : null,
-          timestampsCount: reducedFromCache.length
-        }
+        comments: [],
+        complete: true,
+        progress: null
       });
+      return;
     }
-    if (cacheEntry?.nextToken && !cacheEntry?.complete) {
-      scheduleLazyCommentsFetch(videoId);
-    }
-    return;
-  }
+    applyExperimentalGameSkin(tabId, videoId);
 
-  try {
-    const initialResult = await fetchCommentsPages(
-      videoId,
-      null,
-      fetchConfig.startupPages,
-      [],
-      {
-        onPage: async ({ freshPageComments, pageIndex }) => {
-          if (freshPageComments.length === 0) {
-            return;
-          }
-          if (!lastLivePageMarkerUpdates) {
-            return;
-          }
-          await sendCommentsPageUpdateToVideoTabs(
-            videoId,
-            freshPageComments,
-            allowLongMessages,
-            maxMessageChars,
-            hideTimestampOnlyMessages,
-            hideMultiTimestampMessages,
-            allowChapterTimestampComments,
-            false,
-            {
-              pagesFetched: pageIndex,
-              pagesTarget: fetchConfig.startupPages || null,
-              timestampsCount: null
-            }
-          );
-        }
+    if (forceRefresh) {
+      commentsCache.delete(videoId);
+    }
+    const cacheEntry = commentsCache.get(videoId);
+    if (!forceRefresh && isCacheFresh(cacheEntry)) {
+      await sendCachedCommentsToTab(videoId, tabId);
+      if (cacheEntry?.nextToken && !cacheEntry?.complete) {
+        scheduleLazyCommentsFetch(videoId);
       }
-    );
-    updateCacheEntry(videoId, initialResult.comments, initialResult.nextToken);
-    const initialEntry = commentsCache.get(videoId);
-    if (initialEntry) {
-      initialEntry.pagesFetched = Number(initialResult.pagesFetched || 0);
+      return;
     }
 
-    const reduced = commentsForSettings(
-        initialResult.comments,
-        allowLongMessages,
-        maxMessageChars,
-        hideTimestampOnlyMessages,
-        hideMultiTimestampMessages,
-        allowChapterTimestampComments
-      );
-    if (await isTabStillOnVideo(tabId, videoId)) {
-      await sendMessageWithRetry(tabId, {
-        type: "comments_replace",
-        comments: reduced,
-        complete: !initialResult.nextToken,
-        progress: {
-          pagesFetched: Number(initialResult.pagesFetched || 0) || null,
-          pagesTarget: !initialResult.nextToken
-            ? Number(initialResult.pagesFetched || 0) || null
-            : null,
-          timestampsCount: reduced.length
-        }
-      });
-    }
-
-    if (initialResult.nextToken) {
-      scheduleLazyCommentsFetch(videoId);
-    }
-  } catch (error) {
     try {
-      const fallbackEntry = commentsCache.get(videoId);
-      if (fallbackEntry) {
-        fallbackEntry.complete = true;
-        fallbackEntry.nextToken = null;
+      const initialResult = await fetchCommentsPages(
+        videoId,
+        null,
+        fetchConfig.startupPages,
+        [],
+        {
+          onPage: async ({ freshPageComments, pageIndex }) => {
+            if (freshPageComments.length === 0) {
+              return;
+            }
+            if (!lastLivePageMarkerUpdates) {
+              return;
+            }
+            await sendCommentsPageUpdateToVideoTabs(
+              videoId,
+              freshPageComments,
+              allowLongMessages,
+              maxMessageChars,
+              hideTimestampOnlyMessages,
+              hideMultiTimestampMessages,
+              allowChapterTimestampComments,
+              false,
+              {
+                pagesFetched: pageIndex,
+                pagesTarget: fetchConfig.startupPages || null,
+                timestampsCount: null
+              }
+            );
+          }
+        }
+      );
+
+      if (initialResult.timedOut && Number(initialResult.pagesFetched || 0) <= 0) {
+        return;
       }
-      const fallbackComments = Array.isArray(fallbackEntry?.comments)
-        ? fallbackEntry.comments
-        : [];
-      const reducedFallback = commentsForSettings(
-        fallbackComments,
+
+      updateCacheEntry(
+        videoId,
+        initialResult.comments,
+        initialResult.nextToken,
+        !initialResult.nextToken && !initialResult.timedOut
+      );
+      const initialEntry = commentsCache.get(videoId);
+      if (initialEntry) {
+        initialEntry.pagesFetched = Number(initialResult.pagesFetched || 0);
+      }
+
+      const reduced = commentsForSettings(
+        initialResult.comments,
         allowLongMessages,
         maxMessageChars,
         hideTimestampOnlyMessages,
@@ -1144,19 +1364,62 @@ async function handleIncrementalComments(videoId, tabId, forceRefresh = false) {
       if (await isTabStillOnVideo(tabId, videoId)) {
         await sendMessageWithRetry(tabId, {
           type: "comments_replace",
-          comments: reducedFallback,
-          complete: true,
+          comments: reduced,
+          complete: !initialResult.nextToken && !initialResult.timedOut,
           progress: {
-            pagesFetched: Number(fallbackEntry?.pagesFetched || 0) || null,
-            pagesTarget: Number(fallbackEntry?.pagesFetched || 0) || null,
-            timestampsCount: reducedFallback.length
+            pagesFetched: Number(initialResult.pagesFetched || 0) || null,
+            pagesTarget: !initialResult.nextToken && !initialResult.timedOut
+              ? Number(initialResult.pagesFetched || 0) || null
+              : null,
+            timestampsCount: reduced.length
           }
         });
       }
-    } catch (_fallbackError) {
-      // Ignore fallback notification failures.
+
+      if (initialResult.nextToken) {
+        scheduleLazyCommentsFetch(videoId);
+      }
+    } catch (error) {
+      try {
+        const fallbackEntry = commentsCache.get(videoId);
+        if (fallbackEntry) {
+          fallbackEntry.complete = true;
+          fallbackEntry.nextToken = null;
+        }
+        const fallbackComments = Array.isArray(fallbackEntry?.comments)
+          ? fallbackEntry.comments
+          : [];
+        const reducedFallback = commentsForSettings(
+          fallbackComments,
+          allowLongMessages,
+          maxMessageChars,
+          hideTimestampOnlyMessages,
+          hideMultiTimestampMessages,
+          allowChapterTimestampComments
+        );
+        if (await isTabStillOnVideo(tabId, videoId)) {
+          await sendMessageWithRetry(tabId, {
+            type: "comments_replace",
+            comments: reducedFallback,
+            complete: true,
+            progress: {
+              pagesFetched: Number(fallbackEntry?.pagesFetched || 0) || null,
+              pagesTarget: Number(fallbackEntry?.pagesFetched || 0) || null,
+              timestampsCount: reducedFallback.length
+            }
+          });
+        }
+      } catch (_fallbackError) {
+        // Ignore fallback notification failures.
+      }
     }
-  }
+  })()
+    .finally(() => {
+      incrementalFetchPromises.delete(videoId);
+    });
+
+  incrementalFetchPromises.set(videoId, requestPromise);
+  return requestPromise;
 }
 
 async function refreshOpenVideoCacheKeepalive() {
@@ -1384,7 +1647,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             await syncLegacyRuntimeCatalogFromThemeCatalogV2(
               seeded.catalog,
               seeded.revision,
-              seeded.catalog?.themes?.[0]?.id || "default"
+              seeded.catalog?.themes?.[0]?.id || "default",
+              { syncActiveSkin: false }
             );
           }
         }
@@ -1434,7 +1698,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await syncLegacyRuntimeCatalogFromThemeCatalogV2(
             message.themeCatalogV2,
             nextRevision,
-            activeThemeId
+            activeThemeId,
+            { syncActiveSkin: true }
           );
         }
         for (const tab of tabs) {
@@ -1631,5 +1896,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.windows.onRemoved.addListener((windowId) => {
   if (windowId === skinEditorWindowId) {
     skinEditorWindowId = null;
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  const candidateUrl = changeInfo?.url || tab?.pendingUrl || tab?.url || "";
+  if (!extractVideoIdFromUrl(candidateUrl)) {
+    return;
+  }
+  if (changeInfo?.url) {
+    scheduleEnsureWatchPageContentInjected(tabId, WATCH_INJECTION_DELAY_MS);
+    return;
+  }
+  if (changeInfo?.status === "complete") {
+    scheduleEnsureWatchPageContentInjected(tabId, 300);
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const existingTimer = pendingWatchInjectionTimers.get(tabId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    pendingWatchInjectionTimers.delete(tabId);
   }
 });

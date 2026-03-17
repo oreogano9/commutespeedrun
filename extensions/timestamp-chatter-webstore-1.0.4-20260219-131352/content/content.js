@@ -1,6 +1,10 @@
 let overlayElement = null;
 let markerBarElement = null;
 let markerPreviewElement = null;
+const CONTENT_LOADED_MARKER_ATTR = "data-timestamp-chatter-content-loaded";
+try {
+  document.documentElement?.setAttribute(CONTENT_LOADED_MARKER_ATTR, "1");
+} catch (_error) {}
 let position = "bottom-left";
 let videoContainer = null;
 let isActive = true;
@@ -34,8 +38,11 @@ let freePositionEnabled = false;
 let freePositionX = 0;
 let freePositionY = 0;
 let commentsRequestRetryTimerId = null;
+let commentsResponseWatchdogTimerId = null;
 let autoSkinDetectTimerId = null;
+let monitoringRetryTimerId = null;
 let commentsScanInProgress = false;
+let startupVideoReadyRescueDoneForVideoId = null;
 let monitoredVideo = null;
 let videoMonitorHandlers = null;
 let notificationOrderSequence = 0;
@@ -210,7 +217,9 @@ const LANDING_RUBBERBAND_FUZZ_SECONDS = 0.08;
 const LANDING_RUBBERBAND_DURATION_MS = 1000;
 const COMMENTS_REQUEST_INITIAL_DELAY_MS = 900;
 const COMMENTS_REQUEST_RETRY_DELAYS_MS = [1800, 3500, 6000];
+const COMMENTS_REQUEST_RESPONSE_WATCHDOG_MS = 20000;
 const AUTO_SKIN_DETECT_DELAY_MS = 1200;
+const MONITORING_RETRY_DELAY_MS = 900;
 const FULLSCREEN_OVERLAY_SCALE_BONUS = 0.1;
 const DEFAULT_COMMENT_SCAN_START_DELAY_SEC =
   settingsSchema?.defaults?.commentScanStartDelaySec ?? 3;
@@ -530,6 +539,10 @@ function pauseTimestampRuntime() {
   if (autoSkinDetectTimerId !== null) {
     clearTimeout(autoSkinDetectTimerId);
     autoSkinDetectTimerId = null;
+  }
+  if (monitoringRetryTimerId !== null) {
+    clearTimeout(monitoringRetryTimerId);
+    monitoringRetryTimerId = null;
   }
   detachVideoMonitoring();
   hideOverlay();
@@ -1573,6 +1586,7 @@ function setLocalNotificationsMutedFromQuickMenu(nextValue) {
 }
 
 async function sendQuickOverlaySettingPatch(patch = {}) {
+  let saveSucceeded = true;
   try {
     if (patch && typeof patch === "object") {
       const storagePatch = {};
@@ -1627,13 +1641,17 @@ async function sendQuickOverlaySettingPatch(patch = {}) {
         );
       }
       if (Object.keys(storagePatch).length > 0) {
-        const maybePromise = chrome.storage.sync.set(storagePatch);
-        if (maybePromise && typeof maybePromise.catch === "function") {
-          maybePromise.catch(() => {});
-        }
+        await chrome.storage.sync.set(storagePatch);
       }
     }
-  } catch (error) {}
+  } catch (error) {
+    saveSucceeded = false;
+  }
+
+  if (!saveSucceeded) {
+    setQuickMenuStatus("Setting failed to save.");
+    return false;
+  }
 
   try {
     await chrome.runtime.sendMessage({
@@ -1641,6 +1659,8 @@ async function sendQuickOverlaySettingPatch(patch = {}) {
       ...patch
     });
   } catch (error) {}
+
+  return true;
 }
 
 async function setHeatmapEnabledFromQuickMenu(nextValue) {
@@ -1772,17 +1792,21 @@ async function setRaritySkinFromQuickMenu(nextSkinId) {
     setQuickMenuPanel("main");
     return;
   }
-  raritySkin = nextSkin;
-  tabSessionRaritySkinOverride = nextSkin;
   const activeRaritySkinConfig = rarityShared
     ? rarityShared.deepClone(rarityShared.getSkinById(raritySkinCatalog, nextSkin))
     : null;
-  await sendQuickOverlaySettingPatch({
+  const didSave = await sendQuickOverlaySettingPatch({
     raritySkin: nextSkin,
     activeRaritySkinId: nextSkin,
     activeRaritySkinConfig,
     raritySkinCatalogRevision
   });
+  if (!didSave) {
+    setQuickMenuPanel("main");
+    return;
+  }
+  raritySkin = nextSkin;
+  tabSessionRaritySkinOverride = nextSkin;
   scheduleRenderTimeMarkers();
   const video = getVideo();
   if (video) {
@@ -3446,19 +3470,16 @@ function ensureLaneContainers() {
   if (!overlayElement) {
     return;
   }
+  const reactRenderer = getReactOverlayRenderer();
   for (const corner of CORNERS) {
     if (laneElements.has(corner) && laneElements.get(corner).isConnected) {
       continue;
     }
-    const existing = overlayElement.querySelector(`.overlay-lane.${corner}`);
+    const existing = reactRenderer?.getLaneElement?.(corner) || null;
     if (existing) {
       laneElements.set(corner, existing);
       continue;
     }
-    const lane = document.createElement("div");
-    lane.className = `overlay-lane ${corner}`;
-    overlayElement.appendChild(lane);
-    laneElements.set(corner, lane);
   }
 }
 
@@ -3712,7 +3733,7 @@ function updateLaneVisibility() {
     if (!lane) {
       continue;
     }
-    const visible = corner === position;
+    const visible = !notificationsSuppressedByDraftPopup && corner === position;
     lane.classList.toggle("hidden", !visible);
   }
   overlayElement.classList.toggle("comment-draft-popup-open", notificationsSuppressedByDraftPopup);
@@ -4283,10 +4304,59 @@ function clearStartupRequestTimers() {
     clearTimeout(commentsRequestRetryTimerId);
     commentsRequestRetryTimerId = null;
   }
+  if (commentsResponseWatchdogTimerId !== null) {
+    clearTimeout(commentsResponseWatchdogTimerId);
+    commentsResponseWatchdogTimerId = null;
+  }
   if (autoSkinDetectTimerId !== null) {
     clearTimeout(autoSkinDetectTimerId);
     autoSkinDetectTimerId = null;
   }
+  if (monitoringRetryTimerId !== null) {
+    clearTimeout(monitoringRetryTimerId);
+    monitoringRetryTimerId = null;
+  }
+}
+
+function clearCommentsResponseWatchdog() {
+  if (commentsResponseWatchdogTimerId !== null) {
+    clearTimeout(commentsResponseWatchdogTimerId);
+    commentsResponseWatchdogTimerId = null;
+  }
+}
+
+function scheduleCommentsResponseWatchdog(videoId, source = "unknown") {
+  if (!videoId) {
+    return;
+  }
+  clearCommentsResponseWatchdog();
+  commentsResponseWatchdogTimerId = setTimeout(() => {
+    commentsResponseWatchdogTimerId = null;
+    if (currentVideoId !== videoId || getVideoId() !== videoId) {
+      return;
+    }
+    if (commentsLoadComplete || !commentsScanInProgress) {
+      return;
+    }
+    pushQuickMenuScanDebugEvent(
+      "comments_watchdog_retry",
+      `${source} exceeded ${COMMENTS_REQUEST_RESPONSE_WATCHDOG_MS}ms without payload`
+    );
+    scheduleCommentsRequest(videoId, 0, 0, "watchdog_retry");
+  }, COMMENTS_REQUEST_RESPONSE_WATCHDOG_MS);
+}
+
+function scheduleMonitoringRetry() {
+  if (monitoringRetryTimerId !== null) {
+    return;
+  }
+  monitoringRetryTimerId = setTimeout(() => {
+    monitoringRetryTimerId = null;
+    if (!isOverlayRuntimeEnabled()) {
+      return;
+    }
+    startMonitoring();
+  }, MONITORING_RETRY_DELAY_MS);
 }
 
 function scheduleAutoSkinDetect(videoId, delayMs = AUTO_SKIN_DETECT_DELAY_MS) {
@@ -4342,6 +4412,7 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0, source = "un
         source,
         `comments request sent${Boolean(clearTimestampCacheOnRefresh) ? " (forceRefresh)" : ""}`
       );
+      scheduleCommentsResponseWatchdog(videoId, source);
       await chrome.runtime.sendMessage({
         type: "comments",
         video_id: videoId,
@@ -4364,6 +4435,27 @@ function scheduleCommentsRequest(videoId, attempt = 0, delayMs = 0, source = "un
       }
     }
   }, Math.max(0, Number(delayMs) || 0));
+}
+
+function maybeScheduleStartupVideoReadyRescue(reason = "unknown") {
+  const readyVideoId = getVideoId();
+  if (
+    !readyVideoId ||
+    readyVideoId !== currentVideoId ||
+    startupVideoReadyRescueDoneForVideoId === readyVideoId ||
+    !isOverlayRuntimeEnabled() ||
+    commentsScanInProgress ||
+    comments.length !== 0 ||
+    commentsLoadPagesFetched !== null
+  ) {
+    return;
+  }
+  startupVideoReadyRescueDoneForVideoId = readyVideoId;
+  pushQuickMenuScanDebugEvent(
+    "video_ready_rescue",
+    `triggered by ${reason}`
+  );
+  scheduleCommentsRequest(readyVideoId, 0, 250, "video_ready_rescue");
 }
 
 async function safeMain() {
@@ -4453,8 +4545,8 @@ function createInterface() {
   if (document.getElementById("overlay-element")) {
     overlayElement = document.getElementById("overlay-element");
     ensureOverlayAttached();
-    ensureLaneContainers();
     ensureReactNotificationOverlayMounted();
+    ensureLaneContainers();
     applyOverlayStyles();
     updateLaneVisibility();
     ensureCommentDraftPopup();
@@ -4468,8 +4560,8 @@ function createInterface() {
   overlayElement = document.createElement("div");
   overlayElement.id = "overlay-element";
   overlayElement.classList.add("overlay-root");
-  ensureLaneContainers();
   ensureReactNotificationOverlayMounted();
+  ensureLaneContainers();
   applyOverlayStyles();
   updateLaneVisibility();
 
@@ -4822,7 +4914,12 @@ function startMonitoring() {
   videoContainer = getOverlayHost() || document.querySelector("#container .html5-video-player");
 
   if (!video) {
+    scheduleMonitoringRetry();
     return;
+  }
+  if (monitoringRetryTimerId !== null) {
+    clearTimeout(monitoringRetryTimerId);
+    monitoringRetryTimerId = null;
   }
 
   if (monitoredVideo === video && videoMonitorHandlers) {
@@ -4877,6 +4974,7 @@ function startMonitoring() {
   monitoredVideo = video;
   videoMonitorHandlers = { onTimeUpdate, onSeeking, onSeeked, onPlay, onRateChange };
   monitoringInitialized = true;
+  maybeScheduleStartupVideoReadyRescue("video_ready");
 }
 
 function getReactOverlayRenderer() {
@@ -4939,6 +5037,7 @@ function ensureReactNotificationOverlayMounted() {
     }
     reactRenderer.setActiveThemeId?.(raritySkin);
     reactNotificationsOverlayMounted = true;
+    ensureLaneContainers();
     pushReactNotificationOverlayState();
     return true;
   } catch (error) {
@@ -5482,6 +5581,7 @@ function resetVariables() {
   commentsLoadComplete = false;
   commentsLoadPagesFetched = null;
   commentsLoadPagesTarget = null;
+  startupVideoReadyRescueDoneForVideoId = null;
   cancelCardDrag();
   suppressCardClickUntil = 0;
   suppressGlobalClickUntil = 0;
@@ -5897,6 +5997,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "comments_replace") {
+    clearCommentsResponseWatchdog();
     pushQuickMenuScanDebugEvent(
       "comments_replace",
       message.complete === false ? "partial (cached/startup/lazy continuing)" : "complete/cached"
@@ -5922,6 +6023,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     hideOverlay();
     scheduleRenderTimeMarkers();
     updateEyeToggleVisibility();
+    maybeScheduleStartupVideoReadyRescue("comments_replace_empty");
     if (isOverlayRuntimeEnabled() && monitoringInitialized === false) {
       startMonitoring();
     }
@@ -5933,6 +6035,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === "comments_update") {
+    clearCommentsResponseWatchdog();
     comments.push(...(message.comments || []));
     if (message.complete !== undefined) {
       commentsLoadComplete = Boolean(message.complete);

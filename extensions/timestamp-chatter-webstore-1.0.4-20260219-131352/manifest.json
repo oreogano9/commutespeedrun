@@ -10,8 +10,7 @@
     {
       "all_frames": true,
       "css": [
-        "content/content.css",
-        "ui-dist/content-overlay/style.css"
+        "content/content.css"
       ],
       "js": [
         "shared/rarity-skins.js",
@@ -27,15 +26,6 @@
       "run_at": "document_start"
     }
   ],
-   "declarative_net_request": {
-    "rule_resources": [
-      {
-        "enabled": true,
-        "id": "ruleset_1",
-        "path": "rules.json"
-      }
-    ]
-  },
   "description": "Sync YouTube comments with video playback and highly customizable timestamp overlays.",
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: blob: https://images.unsplash.com https://plus.unsplash.com https://api.dicebear.com;"
@@ -53,6 +43,7 @@
   "permissions": [
     "storage",
     "declarativeNetRequestWithHostAccess",
+    "scripting",
     "tabs"
   ],
   "version": "1.1.2",

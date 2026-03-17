@@ -1,11 +1,12 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import '../shared/shared.css';
+import overlayCssText from '../shared/shared.css?inline';
 import { NotificationCard } from '../shared/NotificationCard.jsx';
 
 const LANE_KEYS = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const laneRoots = new Map();
 let mountedOverlayElement = null;
+let mountedOverlayRootElement = null;
 let overlayCallbacks = {};
 let overlayState = {
   lanes: Object.fromEntries(LANE_KEYS.map((k) => [k, []])),
@@ -14,6 +15,144 @@ let overlayState = {
 };
 let themeCatalogV2 = null;
 let activeThemeId = 'default';
+const SHADOW_HOST_CLASS = 'tc-react-overlay-shadow-host';
+const SHADOW_ROOT_CLASS = 'tc-react-overlay-root';
+const SHADOW_STYLE_ATTR = 'data-tc-react-overlay-style';
+const SHADOW_LAYOUT_CSS = `
+:host {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.${SHADOW_ROOT_CLASS} {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.overlay-lane {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  width: calc(100% - 8rem);
+  max-width: calc(100% - 8rem);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.overlay-lane.hidden {
+  display: none;
+}
+
+.overlay-lane.custom-position {
+  transition: left 0.04s linear, top 0.04s linear;
+}
+
+.overlay-lane.bottom-left {
+  bottom: 4rem;
+  left: 4rem;
+  align-items: flex-start;
+}
+
+.overlay-lane.top-left {
+  top: 4rem;
+  left: 4rem;
+  align-items: flex-start;
+  transform-origin: top left;
+}
+
+.overlay-lane.bottom-right {
+  bottom: 4rem;
+  right: 4rem;
+  align-items: flex-end;
+  transform-origin: bottom right;
+}
+
+.overlay-lane.top-right {
+  top: 4rem;
+  right: 4rem;
+  align-items: flex-end;
+  transform-origin: top right;
+}
+
+:host-context(.html5-video-player:not(.ytp-autohide)) .overlay-lane.bottom-left,
+:host-context(.html5-video-player:not(.ytp-autohide)) .overlay-lane.bottom-right {
+  bottom: 8rem;
+}
+
+.overlay-lane.bottom-left .overlay-comment,
+.overlay-lane.top-left .overlay-comment {
+  transform-origin: left center;
+}
+
+.overlay-lane.bottom-right .overlay-comment,
+.overlay-lane.top-right .overlay-comment {
+  transform-origin: right center;
+}
+
+.overlay-comment {
+  --overlay-tier-scale: 1;
+  display: flex;
+  align-items: center;
+  margin-top: 0;
+  margin-bottom: 0;
+  opacity: 0;
+  transform: translate3d(0, 10px, 0);
+  scale: var(--overlay-tier-scale);
+  transition: opacity 0.25s ease, transform 0.25s ease, scale 0.25s ease;
+  pointer-events: auto;
+  cursor: pointer;
+  isolation: isolate;
+  contain: paint;
+  backface-visibility: hidden;
+  will-change: opacity, transform;
+  outline: 1px solid transparent;
+}
+
+.overlay-comment.visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+.overlay-comment.hiding {
+  transition: opacity 1s ease;
+  opacity: 0;
+  transform: translate3d(0, 0, 0);
+  scale: var(--overlay-tier-scale);
+}
+`;
+
+function ensureShadowOverlayRoot(overlayElement) {
+  if (!overlayElement) return null;
+  let host = overlayElement.querySelector(`:scope > .${SHADOW_HOST_CLASS}`);
+  if (!host) {
+    host = document.createElement('div');
+    host.className = SHADOW_HOST_CLASS;
+    overlayElement.insertBefore(host, overlayElement.firstChild || null);
+  }
+
+  const shadowRoot = host.shadowRoot || host.attachShadow({ mode: 'open' });
+  let style = shadowRoot.querySelector(`style[${SHADOW_STYLE_ATTR}]`);
+  if (!style) {
+    style = document.createElement('style');
+    style.setAttribute(SHADOW_STYLE_ATTR, '1');
+    style.textContent = `${SHADOW_LAYOUT_CSS}\n${overlayCssText}`;
+    shadowRoot.appendChild(style);
+  }
+
+  let root = shadowRoot.querySelector(`.${SHADOW_ROOT_CLASS}`);
+  if (!root) {
+    root = document.createElement('div');
+    root.className = SHADOW_ROOT_CLASS;
+    shadowRoot.appendChild(root);
+  }
+
+  return root;
+}
 
 function ensureLaneContainers(overlayElement) {
   if (!overlayElement) return [];
@@ -40,8 +179,8 @@ function getRootForLane(laneElement) {
 }
 
 function renderAllLanes() {
-  if (!mountedOverlayElement) return;
-  const lanes = ensureLaneContainers(mountedOverlayElement);
+  if (!mountedOverlayRootElement) return;
+  const lanes = ensureLaneContainers(mountedOverlayRootElement);
   for (const { key, lane } of lanes) {
     const root = getRootForLane(lane);
     const cards = Array.isArray(overlayState?.lanes?.[key]) ? overlayState.lanes[key] : [];
@@ -123,8 +262,10 @@ function LaneCards({ laneKey, cards, runtimeConfig, onCardClick }) {
           ].filter(Boolean).join(' ')}
           style={{
             order: String(entry.order ?? 0),
-            opacity: getCardOpacity(entry, index, cards.length, laneKey, runtimeConfig)
+            opacity: getCardOpacity(entry, index, cards.length, laneKey, runtimeConfig),
+            pointerEvents: 'auto'
           }}
+          onClick={() => onCardClick?.(entry.id)}
         >
           <NotificationCard
             mode="live"
@@ -136,7 +277,6 @@ function LaneCards({ laneKey, cards, runtimeConfig, onCardClick }) {
             showMeta={entry.showMeta !== false}
             className="tc-live-react-card-frame"
             runtimeConfig={runtimeConfig}
-            onClick={() => onCardClick?.(entry.id)}
           />
         </div>
       ))}
@@ -146,8 +286,9 @@ function LaneCards({ laneKey, cards, runtimeConfig, onCardClick }) {
 
 function mountOverlay(overlayElement, callbacks = {}) {
   mountedOverlayElement = overlayElement || null;
+  mountedOverlayRootElement = ensureShadowOverlayRoot(mountedOverlayElement);
   overlayCallbacks = callbacks || {};
-  if (!mountedOverlayElement) return;
+  if (!mountedOverlayRootElement) return;
   renderAllLanes();
 }
 
@@ -159,6 +300,7 @@ function unmountOverlay() {
     laneRoots.delete(lane);
   }
   mountedOverlayElement = null;
+  mountedOverlayRootElement = null;
 }
 
 function setOverlayState(nextState) {
@@ -186,6 +328,14 @@ function setRuntimeDisplayConfig(nextConfig) {
   renderAllLanes();
 }
 
+function getLaneElement(laneKey) {
+  if (!mountedOverlayRootElement) {
+    return null;
+  }
+  const safeKey = String(laneKey || '');
+  return mountedOverlayRootElement.querySelector(`:scope > .overlay-lane.${CSS.escape(safeKey)}`);
+}
+
 globalThis.TimestampChatterReactOverlay = {
   mountOverlay,
   unmountOverlay,
@@ -193,6 +343,7 @@ globalThis.TimestampChatterReactOverlay = {
   setThemeCatalog,
   setActiveThemeId,
   updateRuntimeConfig: setRuntimeDisplayConfig,
+  getLaneElement,
   hasBridge: true
 };
 
@@ -206,5 +357,6 @@ globalThis.TimestampChatterReactNotifications = {
   setOverlayState,
   setThemeCatalog,
   setActiveThemeId,
-  updateRuntimeConfig: setRuntimeDisplayConfig
+  updateRuntimeConfig: setRuntimeDisplayConfig,
+  getLaneElement
 };
