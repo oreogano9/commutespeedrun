@@ -3,16 +3,16 @@
 
 :root {
   color-scheme: light;
-  --bg: #f6f4ef;
-  --bg-2: #efe9de;
-  --ink: #1c1a17;
-  --muted: #6b665d;
+  --bg: #f3f6f7;
+  --bg-2: #e6eff1;
+  --ink: #101616;
+  --muted: #5f6b6b;
   --card: #ffffff;
-  --accent: #ff5b2e;
-  --accent-2: #2a6ef5;
-  --accent-3: #0da678;
-  --ring: rgba(30, 27, 23, 0.08);
-  --shadow: 0 20px 60px rgba(17, 16, 15, 0.12);
+  --accent: #0ea5e9;
+  --accent-2: #0f766e;
+  --accent-3: #f97316;
+  --ring: rgba(13, 17, 17, 0.08);
+  --shadow: 0 30px 90px rgba(12, 20, 20, 0.18);
 }
 
 * {
@@ -31,7 +31,7 @@ body {
   color: var(--ink);
   background:
     radial-gradient(1200px 800px at 10% -10%, #ffffff 0%, transparent 60%),
-    radial-gradient(900px 700px at 90% 10%, #ffe5db 0%, transparent 60%),
+    radial-gradient(900px 700px at 90% 10%, #cfe6ef 0%, transparent 60%),
     linear-gradient(135deg, var(--bg) 0%, var(--bg-2) 100%);
 }
 

@@ -24,7 +24,7 @@ import { demoFlights, type FlightRecord, type FlightStatus, type FlightType } fr
 
 const API_CONFIG = {
   mode: import.meta.env.VITE_FLIGHT_MODE ?? 'demo',
-  baseUrl: import.meta.env.VITE_FLIGHT_API_BASE ?? '',
+  baseUrl: import.meta.env.VITE_FLIGHT_API_BASE ?? '/api/fco-flights',
   apiKey: import.meta.env.VITE_FLIGHT_API_KEY ?? '',
 };
 
