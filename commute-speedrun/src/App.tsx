@@ -59,6 +59,8 @@ const normalizeResponse = (data: unknown): FlightRecord[] => {
   return [];
 };
 
+const buildApiUrl = (base: string) => (base.startsWith('http') ? new URL(base) : new URL(base, window.location.origin));
+
 const fetchFlights = async (type: FlightType, offset: number) => {
   if (!API_CONFIG.baseUrl || API_CONFIG.mode === 'demo') {
     await sleep(600);
@@ -66,7 +68,7 @@ const fetchFlights = async (type: FlightType, offset: number) => {
     return filtered.slice(offset, offset + 6);
   }
 
-  const url = new URL(`${API_CONFIG.baseUrl.replace(/\/$/, '')}/flights`);
+  const url = buildApiUrl(API_CONFIG.baseUrl.replace(/\/$/, ''));
   url.searchParams.set('type', type);
   url.searchParams.set('offset', offset.toString());
   url.searchParams.set('limit', '6');
@@ -214,7 +216,7 @@ const App = () => {
           <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-3">
               <div className="inline-flex items-center gap-2 rounded-full border border-black/5 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] text-[#5f6b6b]">
-                <Radar size={14} /> AeroScope Intelligence
+                <Radar size={14} /> AeroScope Intelligence · FCO (LIRF)
               </div>
               <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
                 Airport business + flight data tracker for live ramp decisions.
